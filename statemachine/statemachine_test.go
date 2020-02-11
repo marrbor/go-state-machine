@@ -86,16 +86,18 @@ func TestParser9(t *testing.T) {
 	assert.Nil(t, tr)
 }
 
-var x struct{}
+type Z struct{}
+func (z *Z) Shutdown() {}
+var z Z
 
 func TestNewStateMachineNG(t *testing.T) {
-	sm, err := NewStateMachine(x, "notExist.puml")
+	sm, err := NewStateMachine(&z, "notExist.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, "open notExist.puml: no such file or directory")
 }
 
 func TestNewStateMachine1(t *testing.T) {
-	sm, err := NewStateMachine(x, "test1.puml")
+	sm, err := NewStateMachine(&z, "test1.puml")
 	assert.NoError(t, err)
 	assert.NotNil(t, sm)
 
@@ -119,33 +121,41 @@ func TestNewStateMachine1(t *testing.T) {
 }
 
 func TestNewStateMachineNG2(t *testing.T) {
-	sm, err := NewStateMachine(x, "test2.puml")
+	sm, err := NewStateMachine(&z, "test2.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, NoEffectiveTransitionError.Error())
 }
 
 func TestNewStateMachineNG3(t *testing.T) {
-	sm, err := NewStateMachine(x, "test3.puml")
+	sm, err := NewStateMachine(&z, "test3.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, TriggerWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG4(t *testing.T) {
-	sm, err := NewStateMachine(x, "test4.puml")
+	sm, err := NewStateMachine(&z, "test4.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, GuardWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG5(t *testing.T) {
-	sm, err := NewStateMachine(x, "test5.puml")
+	sm, err := NewStateMachine(&z, "test5.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, ActionWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG6(t *testing.T) {
-	sm, err := NewStateMachine(x, "test6.puml")
+	sm, err := NewStateMachine(&z, "test6.puml")
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, MultipleInitialTransitionError.Error())
+}
+
+type X struct {}
+func TestNewStateMachineNG7(t *testing.T) {
+	var x X
+	sm, err := NewStateMachine(&x, "test6.puml")
+	assert.Nil(t, sm)
+	assert.EqualError(t, err, NoShutdownError.Error())
 }
 
 type qq struct{ counter int }

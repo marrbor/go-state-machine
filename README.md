@@ -20,10 +20,14 @@ State3 --> State3 : Failed
 
 ## usage
 1. write plant uml state machine diagram.
+    1. Do not define named `shutdown` event since it reserved internal using.
 1. write state transition code:
     1. define type to hold action and guard functions.
         1. Prototype of action function is `func()` (defined as type `Action`).
         1. Prototype of guard function is `func() bool` (defined as type `Guard`).
+        1. Both action and guard function must be started with upper case (expose other to package) since they called from [reflect package](https://golang.org/pkg/reflect/).
+        1. `Shutdown` action have to be implement for reserved event `shutdown`.
+            - If not implement, `NewStateMachine` will return error.
     1. generate StateMachine via `NewStateMachine` function with the diagram.
     1. run StateMachine
     1. send Event to StateMachine
@@ -37,7 +41,10 @@ import (
   sm "github.com/marrbor/go-state-machine/statemachine"
 )
 
-type T struct{ counter int }
+type T struct{
+ counter int
+ machine *sm.StateMachine
+}
 var t T
 func (t *T) SaveResult() { }
 func (t *T) Shutdown() { }

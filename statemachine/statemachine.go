@@ -29,6 +29,7 @@ var (
 	GuardWithInitialTransitionError   = fmt.Errorf("initial transition has not have guard condition")
 	ActionWithInitialTransitionError  = fmt.Errorf("initial transition has not have action")
 	NoEffectiveTransitionError        = fmt.Errorf("no effective transition found")
+	NoShutdownError                   = fmt.Errorf("'Shutdown' method is not implemented")
 
 	reWhiteSpace = regexp.MustCompile(`\s+`)
 )
@@ -269,6 +270,12 @@ func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 		states:       make([]*State, 0),
 		eventQueue:   newEventQueue(),
 		msgQueue:     newMsgQueue(),
+	}
+
+	// check Shutdown Method implemented or not.
+	v := reflect.ValueOf(k).MethodByName("Shutdown")
+	if !v.IsValid() {
+		return nil, NoShutdownError
 	}
 
 	// construct state transition data in order to given uml file.
