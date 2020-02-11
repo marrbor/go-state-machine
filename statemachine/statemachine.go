@@ -3,12 +3,14 @@ package statemachine
 import (
 	"bufio"
 	"fmt"
+	"github.com/marrbor/golog"
 	"os"
 	"reflect"
 	"regexp"
 	"strings"
+	"time"
 
-	"github.com/marrbor/golog"
+	"github.com/google/uuid"
 )
 
 const (
@@ -18,6 +20,16 @@ const (
 	// uml mark
 	StartStateMark = "[*]"
 	EndStateMark   = "[*]"
+
+	// pre defined event name
+	EventShutdown = "shutdown"
+
+	// action return value
+	NoRetry         = 0
+	GradualIncrease = -1
+
+	// Default retry interval
+	DurationOfFirstRetry = 500 * time.Microsecond
 )
 
 var (
@@ -37,7 +49,7 @@ var (
 //////////////////////////////////////////////////
 // function type
 type (
-	Action func()
+	Action func() time.Duration
 	Guard  func() bool
 )
 
@@ -51,10 +63,10 @@ type STTItem struct {
 
 //////////////////////////////////////////////////
 // State Transition table
-type stt map[Event][]STTItem
+type stt map[string][]STTItem
 
-func (s stt) add(ev Event, item STTItem) {
-	s[ev] = append(s[ev], item)
+func (s stt) add(ev *Event, item STTItem) {
+	s[ev.name] = append(s[ev.name], item)
 }
 
 //////////////////////////////////////////////////
@@ -75,7 +87,7 @@ func (s *State) IsSame(ss *State) bool {
 }
 
 // addTransitionItem adds STTItem into stt.
-func (s *State) addTransitionItem(trigger Event, item STTItem) {
+func (s *State) addTransitionItem(trigger *Event, item STTItem) {
 	s.transitions.add(trigger, item)
 }
 
@@ -92,34 +104,71 @@ func NewState(name string) *State {
 
 //////////////////////////////////////////////////
 // Event
-type Event string
+type Event struct {
+	name    string
+	id      uuid.UUID
+	attempt int
+	delay   time.Duration
+}
 
-// IsSame returns whether given event is same event or not.
-func (e *Event) IsSame(ev *Event) bool {
-	return *e == *ev
+// IsShutdown returns whether given event is shutdown event or not.
+func (e *Event) IsShutdown() bool {
+	return e.name == EventShutdown
 }
 
 // NewEvent returns new Event instance
-func NewEvent(name string) Event {
-	return Event(name)
+func NewEvent(name string) *Event {
+	return &Event{
+		name:    name,
+		id:      uuid.New(),
+		attempt: 0,
+		delay:   0,
+	}
 }
 
-// pre defined events
-var (
-	ShutdownEvent = Event("shutdown")
-)
+// calcRetryDuration returns whether has to re-send this event or not.
+// When need to retry, set wait duration for re-send and increment attempt times.
+// Input parameter is return value of action function.
+func (e *Event) calcRetryDuration(ret int64) bool {
+	if ret == NoRetry {
+		return false // no need to retry
+	}
+
+	// need to retry
+	e.attempt += 1
+
+	// delay time is given.
+	if 0 < ret {
+		e.delay = time.Duration(ret)
+		return true
+	}
+
+	// GradualIncrease
+	if e.attempt <= 1 {
+		// first time GradualIncrease.
+		e.delay = DurationOfFirstRetry
+		return true
+	}
+	e.delay *= 2 // 2+ time GradualIncrease.
+	return true
+}
+
+// NewShutdownEvent returns new Shutdown event instance.
+func NewShutdownEvent() *Event {
+	return NewEvent(EventShutdown)
+}
 
 //////////////////////////////////////////////////
 // eventQueue
-type eventQueue chan Event
+type eventQueue chan *Event
 
 // push sends event to event queue.
-func (eq eventQueue) push(event Event) {
+func (eq eventQueue) push(event *Event) {
 	eq <- event
 }
 
 // pull receives event from event queue. Blocked until event sent.
-func (eq eventQueue) pull() Event {
+func (eq eventQueue) pull() *Event {
 	return <-eq
 }
 
@@ -170,11 +219,11 @@ func (sm *StateMachine) Start() {
 // Stop stop running state machine
 func (sm *StateMachine) Stop() {
 	golog.Debug("call Stop() !!!")
-	sm.Send(ShutdownEvent)
+	sm.Send(NewShutdownEvent())
 }
 
 // Send sends event to state machine
-func (sm *StateMachine) Send(ev Event) {
+func (sm *StateMachine) Send(ev *Event) {
 	sm.eventQueue.push(ev)
 }
 
@@ -200,17 +249,17 @@ func (sm *StateMachine) run() {
 }
 
 // transit make state transition in order to stt.
-func (sm *StateMachine) transit(ev Event) error {
+func (sm *StateMachine) transit(ev *Event) error {
 
 	// when shutdown event detect, call Shutdown method and return FinishToTransitError to notify state machine stopped.
-	if ev.IsSame(&ShutdownEvent) {
+	if ev.IsShutdown() {
 		golog.Trace("detect shutdown.")
 		reflect.ValueOf(sm.bindClass).MethodByName("Shutdown").Call([]reflect.Value{})
 		sm.currentState = &EndState
 		return FinishToTransitError
 	}
 
-	stt := sm.currentState.transitions[ev]
+	stt := sm.currentState.transitions[ev.name]
 	if stt == nil {
 		golog.Trace("this event ignored at this state.")
 		return nil
@@ -241,7 +290,12 @@ func (sm *StateMachine) transit(ev Event) error {
 	// do action if defined
 	if 0 < len(item.action) {
 		golog.Trace(fmt.Sprintf("do action: '%+v'\n", item.action))
-		reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})
+		ret := reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})[0].Int()
+		// retry and no transition when specified. TODO cancellation implement.
+		if ev.calcRetryDuration(ret) {
+			_ = time.AfterFunc(ev.delay, func() { sm.Send(ev) })
+			return nil
+		}
 	}
 
 	// state transition
@@ -263,7 +317,8 @@ type transition struct {
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
+func
+NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 	sm := &StateMachine{
 		bindClass:    k,
 		currentState: nil,
@@ -338,7 +393,7 @@ func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 			stateMap[n.name] = n
 		}
 		item := STTItem{guard: tr.guard, action: tr.action, next: n}
-		s.addTransitionItem(Event(tr.trigger), item)
+		s.addTransitionItem(NewEvent(tr.trigger), item)
 	}
 
 	for _, v := range stateMap {

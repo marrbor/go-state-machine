@@ -1,9 +1,7 @@
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/marrbor/golog v0.0.0-20200130014444-d9f96e742049 h1:Gt/bwn5Sz/2AeXeohwijBydVywvdzTZpIF4SgvaOCko=
-github.com/marrbor/golog v0.0.0-20200130014444-d9f96e742049/go.mod h1:HEouEy0sZQsIXMkbaB9e6vF90vlSc+IN8y9Z1n+7sVM=
-github.com/marrbor/golog v0.0.0-20200131070610-f3db6c6f8562 h1:5POXNpp+Gf82bF7teBIR/anajsaJZWR0+vtSZanIxNY=
-github.com/marrbor/golog v0.0.0-20200131070610-f3db6c6f8562/go.mod h1:HEouEy0sZQsIXMkbaB9e6vF90vlSc+IN8y9Z1n+7sVM=
+github.com/google/uuid v1.1.1 h1:Gkbcsh/GbpXz7lPftLA3P6TYMwjCLYm83jiFQZF/3gY=
+github.com/google/uuid v1.1.1/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/marrbor/golog v0.0.1 h1:XCkqOA0d96XQ7AoCRIe5tdgT01vvgA8eWcsPihtu2j4=
 github.com/marrbor/golog v0.0.1/go.mod h1:HEouEy0sZQsIXMkbaB9e6vF90vlSc+IN8y9Z1n+7sVM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

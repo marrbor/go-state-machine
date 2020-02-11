@@ -8,6 +8,29 @@ import (
 	"time"
 )
 
+func TestRetryDuration(t *testing.T) {
+	e := NewEvent("test")
+	assert.False(t, e.calcRetryDuration(NoRetry))
+
+	assert.True(t, e.calcRetryDuration(GradualIncrease))
+	assert.EqualValues(t, 1, e.attempt)
+	assert.EqualValues(t, DurationOfFirstRetry, e.delay)
+
+	assert.True(t, e.calcRetryDuration(GradualIncrease))
+	assert.EqualValues(t, 2, e.attempt)
+	assert.EqualValues(t, DurationOfFirstRetry*2, e.delay)
+
+	assert.True(t, e.calcRetryDuration(GradualIncrease))
+	assert.EqualValues(t, 3, e.attempt)
+	assert.EqualValues(t, DurationOfFirstRetry*2*2, e.delay) //
+
+	d := 1 * time.Second
+	assert.True(t, e.calcRetryDuration(int64(d)))
+	assert.EqualValues(t, 4, e.attempt)
+	assert.EqualValues(t, d, e.delay)
+
+}
+
 func TestParser1(t *testing.T) {
 	tr := parseLine("[*] --> State1")
 	assert.EqualValues(t, &transition{
@@ -87,7 +110,9 @@ func TestParser9(t *testing.T) {
 }
 
 type Z struct{}
+
 func (z *Z) Shutdown() {}
+
 var z Z
 
 func TestNewStateMachineNG(t *testing.T) {
@@ -150,7 +175,8 @@ func TestNewStateMachineNG6(t *testing.T) {
 	assert.EqualError(t, err, MultipleInitialTransitionError.Error())
 }
 
-type X struct {}
+type X struct{}
+
 func TestNewStateMachineNG7(t *testing.T) {
 	var x X
 	sm, err := NewStateMachine(&x, "test6.puml")
@@ -158,16 +184,29 @@ func TestNewStateMachineNG7(t *testing.T) {
 	assert.EqualError(t, err, NoShutdownError.Error())
 }
 
-type qq struct{ counter int }
+type qq struct {
+	counter int
+	retry   int
+}
 
 var q qq
 
-func (q *qq) SaveResult() {
+func (q *qq) SaveResult() time.Duration {
 	golog.Info("Do SaveResult")
+	return NoRetry
 }
 
-func (q *qq) Shutdown() {
+func (q *qq) Shutdown() time.Duration {
 	golog.Info("Do Shutdown")
+	return NoRetry
+}
+
+func (q *qq) Retry() time.Duration {
+	q.retry += 1
+	if 3 <= q.retry {
+		return NoRetry
+	}
+	return GradualIncrease
 }
 
 func (q *qq) MaxCheck() bool {
