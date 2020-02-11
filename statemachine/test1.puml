@@ -1,0 +1,10 @@
+@startuml
+[*] --> State1
+State1 --> State2 : Succeeded
+State1 --> [*] : Aborted
+State2 --> State3 : Succeeded
+State2 --> [*] : Aborted
+State3 --> [*] : Succeeded / SaveResult
+State3 --> [*] : Aborted [MaxCheck]
+State3 --> State3 : Failed
+@enduml

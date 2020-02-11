@@ -1,0 +1,6 @@
+@startuml
+[*] --> NotShooting
+[*] --> Idle
+Idle --> Configuring : EvConfig
+Configuring --> Idle : EvConfig
+@enduml

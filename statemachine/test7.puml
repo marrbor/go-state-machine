@@ -1,0 +1,6 @@
+@startuml
+[*] --> State1
+State2 --> State3 : Succeeded
+State1 --> State2 : Succeeded
+State3 --> [*] : Succeeded [MaxCheck]
+@enduml
