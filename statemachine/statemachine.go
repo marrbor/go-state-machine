@@ -36,8 +36,8 @@ var (
 //////////////////////////////////////////////////
 // function type
 type (
-	Action func(sm *StateMachine)
-	Guard  func(sm *StateMachine) bool
+	Action func()
+	Guard  func() bool
 )
 
 //////////////////////////////////////////////////
@@ -204,7 +204,7 @@ func (sm *StateMachine) transit(ev Event) error {
 	// when shutdown event detect, call Shutdown method and return FinishToTransitError to notify state machine stopped.
 	if ev.IsSame(&ShutdownEvent) {
 		golog.Trace("detect shutdown.")
-		reflect.ValueOf(sm.bindClass).MethodByName("Shutdown").Call([]reflect.Value{reflect.ValueOf(sm)})
+		reflect.ValueOf(sm.bindClass).MethodByName("Shutdown").Call([]reflect.Value{})
 		sm.currentState = &EndState
 		return FinishToTransitError
 	}
@@ -223,7 +223,7 @@ func (sm *StateMachine) transit(ev Event) error {
 			golog.Trace("no guard condition defined. do transition")
 			break
 		}
-		if !reflect.ValueOf(sm.bindClass).MethodByName(item.guard).Call([]reflect.Value{reflect.ValueOf(sm)})[0].Bool() {
+		if !reflect.ValueOf(sm.bindClass).MethodByName(item.guard).Call([]reflect.Value{})[0].Bool() {
 			golog.Trace("guard condition not match. seek next candidate")
 			item = nil
 			continue
@@ -240,7 +240,7 @@ func (sm *StateMachine) transit(ev Event) error {
 	// do action if defined
 	if 0 < len(item.action) {
 		golog.Trace(fmt.Sprintf("do action: '%+v'\n", item.action))
-		reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{reflect.ValueOf(sm)})
+		reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})
 	}
 
 	// state transition

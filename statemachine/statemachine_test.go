@@ -152,16 +152,16 @@ type qq struct{ counter int }
 
 var q qq
 
-func (q *qq) SaveResult(sm *StateMachine) {
-	golog.Info(fmt.Sprintf("Do SaveResult state:%+v\n", sm.currentState))
+func (q *qq) SaveResult() {
+	golog.Info("Do SaveResult")
 }
 
-func (q *qq) Shutdown(sm *StateMachine) {
-	golog.Info(fmt.Sprintf("Do Shutdown state:%+v\n", sm.currentState))
+func (q *qq) Shutdown() {
+	golog.Info("Do Shutdown")
 }
 
-func (q *qq) MaxCheck(sm *StateMachine) bool {
-	golog.Info(fmt.Sprintf("count should be %d -> %d. state:%+v\n", q.counter, q.counter+1, sm.currentState))
+func (q *qq) MaxCheck() bool {
+	golog.Info(fmt.Sprintf("count should be %d -> %d.\n", q.counter, q.counter+1))
 	q.counter += 1
 	return 3 <= q.counter
 }

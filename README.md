@@ -22,8 +22,8 @@ State3 --> State3 : Failed
 1. write plant uml state machine diagram.
 1. write state transition code:
     1. define type to hold action and guard functions.
-        1. Prototype of action function is `func(sm *StateMachine)` (defined as type `Action`).
-        1. Prototype of guard function is `func(sm *StateMachine) bool` (defined as type `Guard`).
+        1. Prototype of action function is `func()` (defined as type `Action`).
+        1. Prototype of guard function is `func() bool` (defined as type `Guard`).
     1. generate StateMachine via `NewStateMachine` function with the diagram.
     1. run StateMachine
     1. send Event to StateMachine
@@ -39,9 +39,9 @@ import (
 
 type T struct{ counter int }
 var t T
-func (t *T) SaveResult(sm *sm.StateMachine) { }
-func (t *T) Shutdown(sm *sm.StateMachine) { }
-func (t *T) MaxCheck(sm *sm.StateMachine) bool { return true }
+func (t *T) SaveResult() { }
+func (t *T) Shutdown() { }
+func (t *T) MaxCheck() bool { return true }
 
 func main() {
   m, err := sm.NewStateMachine(&t, "t.puml") // initial transit to State1
@@ -50,7 +50,7 @@ func main() {
   m.Start()
   m.Send(sm.NewEvent("Succeeded")) // transit to State2
   m.Send(sm.NewEvent("Succeeded")) // transit to State3
-  m.Send(sm.NewEvent("Aborted")) // call MaxCheck guard function, if MaxCheck returns true, transit to EndState. 
+  m.Send(sm.NewEvent("Aborted"))   // call MaxCheck guard function, if MaxCheck returns true, transit to EndState. 
   m.Stop() // stop state machine
   s := m.Listen() // Wait for stopping machine.
   if s != sm.Stopped {
