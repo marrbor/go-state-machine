@@ -23,21 +23,24 @@ State3 --> State3 : Failed
     1. Do not define named `shutdown` event since it reserved internal using.
 1. write state transition code:
     1. define type to hold action and guard functions.
-        1. Prototype of action function is `func()` (defined as type `Action`).
+        1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
         1. Prototype of guard function is `func() bool` (defined as type `Guard`).
-        1. Both action and guard function must be started with upper case (expose other to package) since they called from [reflect package](https://golang.org/pkg/reflect/).
-        1. `Shutdown` action have to be implement for reserved event `shutdown`.
-            - If not implement, `NewStateMachine` will return error.
+        1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
+        1. `Shutdown` action have to be implement for reserved event `shutdown`. If not implement, `NewStateMachine` will return error.
     1. generate StateMachine via `NewStateMachine` function with the diagram.
     1. run StateMachine
     1. send Event to StateMachine
     1. Listen StateMachine response when send Shutdown event to StateMachine.
 
+### example
+
 ```go
 package x
 import (
-  "os"
   "fmt"
+  "os"
+  "time"
+
   sm "github.com/marrbor/go-state-machine/statemachine"
 )
 
@@ -45,12 +48,16 @@ type T struct{
  counter int
  machine *sm.StateMachine
 }
-var t T
-func (t *T) SaveResult() { }
-func (t *T) Shutdown() { }
+
+// Action functions
+func (t *T) SaveResult() time.Duration { return 1 * time.Second }
+func (t *T) Shutdown() time.Duration { return 0 }
+
+// Guard functions
 func (t *T) MaxCheck() bool { return true }
 
 func main() {
+  var t T
   m, err := sm.NewStateMachine(&t, "t.puml") // initial transit to State1
   if err != nil {panic(err)}
 
