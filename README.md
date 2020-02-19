@@ -26,7 +26,8 @@ State3 --> State3 : Failed
         1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
         1. Prototype of guard function is `func() bool` (defined as type `Guard`).
         1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
-        1. `Shutdown` action have to be implement for reserved event `shutdown`. If not implement, `NewStateMachine` will return error.
+        1. `func Shutdown() {}` have to be implement. It will be call when `statemachine.Stop()` calls. If not implement it, `NewStateMachine` will return error.
+            - func `Shutdown` haven't any arguments/return value.
     1. generate StateMachine via `NewStateMachine` function with the diagram.
     1. run StateMachine
     1. send Event to StateMachine
