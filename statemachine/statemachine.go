@@ -3,12 +3,13 @@ package statemachine
 import (
 	"bufio"
 	"fmt"
-	"github.com/marrbor/golog"
 	"os"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/marrbor/golog"
 
 	"github.com/google/uuid"
 )
@@ -255,13 +256,14 @@ func (sm *StateMachine) transit(ev *Event) error {
 	if ev.IsShutdown() {
 		golog.Trace("detect shutdown.")
 		reflect.ValueOf(sm.bindClass).MethodByName("Shutdown").Call([]reflect.Value{})
+		golog.Trace(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
 		sm.currentState = &EndState
 		return FinishToTransitError
 	}
 
 	stt := sm.currentState.transitions[ev.name]
 	if stt == nil {
-		golog.Trace("this event ignored at this state.")
+		golog.Trace(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.name))
 		return nil
 	}
 
@@ -274,32 +276,34 @@ func (sm *StateMachine) transit(ev *Event) error {
 			break
 		}
 		if !reflect.ValueOf(sm.bindClass).MethodByName(item.guard).Call([]reflect.Value{})[0].Bool() {
-			golog.Trace("guard condition not match. seek next candidate")
+			golog.Trace(fmt.Sprintf("guard condition %s not match. seek next candidate", item.guard))
 			item = nil
 			continue
 		}
-		golog.Trace("guard condition match. do transition")
+		golog.Trace(fmt.Sprintf("guard condition %s match. do transition", item.guard))
 		break // found.
 	}
 
 	if item == nil {
-		golog.Trace("this event ignored at this state since guard condition not match.")
+		golog.Trace(fmt.Sprintf("event %s ignored at state %s since guard condition not match.", ev.name, sm.currentState.name))
 		return nil
 	}
 
 	// do action if defined
 	if 0 < len(item.action) {
-		golog.Trace(fmt.Sprintf("do action: '%+v'\n", item.action))
+		golog.Trace(fmt.Sprintf("do action: '%+v'", item.action))
 		ret := reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})[0].Int()
 		// retry and no transition when specified. TODO cancellation implement.
+		golog.Trace(fmt.Sprintf("action: '%+v' return %+v", item.action, ret))
 		if ev.calcRetryDuration(ret) {
+			golog.Trace(fmt.Sprintf("wait %+v for retry.", ev.delay))
 			_ = time.AfterFunc(ev.delay, func() { sm.Send(ev) })
 			return nil
 		}
 	}
 
 	// state transition
-	golog.Trace(fmt.Sprintf("%+v -> %+v", sm.currentState, item.next))
+	golog.Trace(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
 	sm.currentState = item.next
 	if sm.currentState.IsSame(&EndState) {
 		return FinishToTransitError // reach to end state, shutdown machine.
