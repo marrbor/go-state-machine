@@ -122,7 +122,7 @@ func TestNewStateMachineNG(t *testing.T) {
 }
 
 func TestNewStateMachine1(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
 	assert.NotNil(t, sm)
 
@@ -179,9 +179,9 @@ type X struct{}
 
 func TestNewStateMachineNG7(t *testing.T) {
 	var x X
-	sm, err := NewStateMachine(&x, "test6.puml")
+	sm, err := NewStateMachine(&x, "test7.puml")
 	assert.Nil(t, sm)
-	assert.EqualError(t, err, NoShutdownError.Error())
+	assert.EqualError(t, err, "following function(s) haven't be implemented: Shutdown,MaxCheck")
 }
 
 type qq struct {
@@ -337,4 +337,10 @@ func TestNewStateMachine(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	_, err := NewStateMachine(&q, "test7.puml")
 	assert.NoError(t, err)
+}
+
+func TestNewStateMachine2(t *testing.T) {
+	golog.SetFilterLevel(golog.TRACE)
+	_, err := NewStateMachine(&q, "test8.puml")
+	assert.EqualError(t,err,"following function(s) haven't be implemented: RetryX,SaveResultX,MaxCheckX")
 }

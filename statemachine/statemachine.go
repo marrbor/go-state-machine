@@ -23,7 +23,8 @@ const (
 	EndStateMark   = "[*]"
 
 	// pre defined event name
-	EventShutdown = "shutdown"
+	EventShutdown    = "shutdown"
+	FunctionShutdown = "Shutdown"
 
 	// action return value
 	NoRetry         = 0
@@ -42,7 +43,6 @@ var (
 	GuardWithInitialTransitionError   = fmt.Errorf("initial transition has not have guard condition")
 	ActionWithInitialTransitionError  = fmt.Errorf("initial transition has not have action")
 	NoEffectiveTransitionError        = fmt.Errorf("no effective transition found")
-	NoShutdownError                   = fmt.Errorf("'Shutdown' method is not implemented")
 
 	reWhiteSpace = regexp.MustCompile(`\s+`)
 )
@@ -303,7 +303,7 @@ func (sm *StateMachine) transit(ev *Event) error {
 	}
 
 	// state transition
-	golog.Trace(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
+	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
 	sm.currentState = item.next
 	if sm.currentState.IsSame(&EndState) {
 		return FinishToTransitError // reach to end state, shutdown machine.
@@ -321,8 +321,11 @@ type transition struct {
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func
-NewStateMachine(k interface{}, path string) (*StateMachine, error) {
+func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
+	// array of function name that have to be implemented but not found.
+	var missedFunctions []string
+
+	// provision return value.
 	sm := &StateMachine{
 		bindClass:    k,
 		currentState: nil,
@@ -332,9 +335,8 @@ NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 	}
 
 	// check Shutdown Method implemented or not.
-	v := reflect.ValueOf(k).MethodByName("Shutdown")
-	if !v.IsValid() {
-		return nil, NoShutdownError
+	if !reflect.ValueOf(k).MethodByName(FunctionShutdown).IsValid() {
+		missedFunctions = append(missedFunctions, FunctionShutdown)
 	}
 
 	// construct state transition data in order to given uml file.
@@ -351,6 +353,15 @@ NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 		tr := parseLine(scanner.Text())
 		if tr == nil {
 			continue // seek next entry.
+		}
+
+		// check action and/or guard function exists or not.
+		for _, f := range []string{tr.action, tr.guard} {
+			if 0 < len(f) {
+				if !reflect.ValueOf(k).MethodByName(f).IsValid() {
+					missedFunctions = append(missedFunctions, f)
+				}
+			}
 		}
 
 		// initial transition
@@ -398,6 +409,12 @@ NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 		}
 		item := STTItem{guard: tr.guard, action: tr.action, next: n}
 		s.addTransitionItem(NewEvent(tr.trigger), item)
+	}
+
+	// error exit when found non-implement function(s)
+	missedFunction := strings.Join(missedFunctions, ",")
+	if 0 < len(missedFunction) {
+		return nil, fmt.Errorf("following function(s) haven't be implemented: %s", missedFunction)
 	}
 
 	for _, v := range stateMap {
