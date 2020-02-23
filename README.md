@@ -58,7 +58,7 @@ func (t *T) MaxCheck() bool { return true }
 
 func main() {
   var t T
-  m, err := sm.NewStateMachine(&t, "t.puml") // initial transit to State1
+  m, err := sm.NewStateMachine(&t, "t.puml",1) // initial transit to State1
   if err != nil {panic(err)}
 
   m.Send(sm.NewEvent("Succeeded")) // transit to State2

@@ -162,8 +162,8 @@ func (eq eventQueue) pull() *Event {
 }
 
 // newEventQueue returns new event queue instance.
-func newEventQueue() eventQueue {
-	return make(eventQueue, 1)
+func newEventQueue(size int) eventQueue {
+	return make(eventQueue, size)
 }
 
 //////////////////////////////////////////////////
@@ -315,7 +315,7 @@ type transition struct {
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
+func NewStateMachine(k interface{}, path string, qSize int) (*StateMachine, error) {
 	// array of function name that have to be implemented but not found.
 	var missedFunctions []string
 
@@ -324,7 +324,7 @@ func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 		bindClass:    k,
 		currentState: nil,
 		states:       make([]*State, 0),
-		eventQueue:   newEventQueue(),
+		eventQueue:   newEventQueue(qSize),
 		msgQueue:     newMsgQueue(),
 	}
 

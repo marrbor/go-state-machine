@@ -117,13 +117,13 @@ func (z *Z) Shutdown() {}
 var z Z
 
 func TestNewStateMachineNG(t *testing.T) {
-	sm, err := NewStateMachine(&z, "notExist.puml")
+	sm, err := NewStateMachine(&z, "notExist.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, "open notExist.puml: no such file or directory")
 }
 
 func TestNewStateMachine1(t *testing.T) {
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 	assert.NotNil(t, sm)
 
@@ -147,31 +147,31 @@ func TestNewStateMachine1(t *testing.T) {
 }
 
 func TestNewStateMachineNG2(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test2.puml")
+	sm, err := NewStateMachine(&z, "test2.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, NoEffectiveTransitionError.Error())
 }
 
 func TestNewStateMachineNG3(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test3.puml")
+	sm, err := NewStateMachine(&z, "test3.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, TriggerWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG4(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test4.puml")
+	sm, err := NewStateMachine(&z, "test4.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, GuardWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG5(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test5.puml")
+	sm, err := NewStateMachine(&z, "test5.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, ActionWithInitialTransitionError.Error())
 }
 
 func TestNewStateMachineNG6(t *testing.T) {
-	sm, err := NewStateMachine(&z, "test6.puml")
+	sm, err := NewStateMachine(&z, "test6.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, MultipleInitialTransitionError.Error())
 }
@@ -180,7 +180,7 @@ type X struct{}
 
 func TestNewStateMachineNG7(t *testing.T) {
 	var x X
-	sm, err := NewStateMachine(&x, "test7.puml")
+	sm, err := NewStateMachine(&x, "test7.puml", 1)
 	assert.Nil(t, sm)
 	assert.EqualError(t, err, "following function(s) haven't be implemented: Shutdown,MaxCheck")
 }
@@ -222,7 +222,7 @@ func (q *qq) MaxCheck() bool {
 
 func TestStateMachine(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -263,7 +263,7 @@ func TestStateMachine(t *testing.T) {
 
 func TestStateMachine2(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -279,7 +279,7 @@ func TestStateMachine2(t *testing.T) {
 
 func TestStateMachine3(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -298,7 +298,7 @@ func TestStateMachine3(t *testing.T) {
 
 func TestStateMachine4(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -329,7 +329,7 @@ func TestStateMachine4(t *testing.T) {
 
 func TestStateMachine5(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test1.puml")
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -349,7 +349,7 @@ func TestStateMachine5(t *testing.T) {
 
 func TestStateMachine6(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	sm, err := NewStateMachine(&q, "test9.puml")
+	sm, err := NewStateMachine(&q, "test9.puml", 1)
 	assert.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
@@ -366,14 +366,36 @@ func TestStateMachine6(t *testing.T) {
 	assert.EqualValues(t, Stopped, s)
 }
 
+func TestStateMachine7(t *testing.T) {
+	golog.SetFilterLevel(golog.TRACE)
+	sm, err := NewStateMachine(&q, "test1.puml", 1)
+	assert.NoError(t, err)
+
+	time.Sleep(1 * time.Second)
+
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
+	for i := 0; i < 5; i++ {
+		sm.Send(NewEvent("non registered event"))
+		golog.Info(i)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	// goto end status with stop timer.
+	sm.Send(NewEvent("Aborted"))
+	s := sm.Listen() // Succeeded transit to this state.
+	assert.EqualValues(t, EndState.name, sm.GetState())
+	assert.EqualValues(t, Stopped, s)
+}
+
 func TestNewStateMachine(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	_, err := NewStateMachine(&q, "test7.puml")
+	_, err := NewStateMachine(&q, "test7.puml", 1)
 	assert.NoError(t, err)
 }
 
 func TestNewStateMachine2(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
-	_, err := NewStateMachine(&q, "test8.puml")
+	_, err := NewStateMachine(&q, "test8.puml", 1)
 	assert.EqualError(t, err, "following function(s) haven't be implemented: RetryX,SaveResultX,MaxCheckX")
 }
