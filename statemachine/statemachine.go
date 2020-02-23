@@ -255,7 +255,7 @@ func (sm *StateMachine) transit(ev *Event) error {
 	// when shutdown event detect, call Shutdown method and return FinishToTransitError to notify state machine stopped.
 	if ev.IsShutdown() {
 		golog.Trace("detect shutdown.")
-		reflect.ValueOf(sm.bindClass).MethodByName("Shutdown").Call([]reflect.Value{})
+		reflect.ValueOf(sm.bindClass).MethodByName(FunctionShutdown).Call([]reflect.Value{})
 		golog.Trace(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
 		sm.currentState = &EndState
 		return FinishToTransitError
