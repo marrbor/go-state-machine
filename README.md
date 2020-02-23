@@ -2,7 +2,8 @@
 
 Execute state transition operation based on [state machine diagram](https://plantuml.com/state-diagram) defined in [Plant UML](https://plantuml.com/) format.
 
-Currently support only flat (no composite) stat model like:
+Currently support only flat (no composite) state model like:
+
 ```puml
 @startuml
 [*] --> State1
@@ -20,18 +21,16 @@ State3 --> State3 : Failed
 
 ## usage
 1. write plant uml state machine diagram.
-    1. Do not define named `shutdown` event since it reserved internal using.
 1. write state transition code:
-    1. define type to hold action and guard functions.
-        1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
-        1. Prototype of guard function is `func() bool` (defined as type `Guard`).
-        1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
-        1. `func Shutdown() {}` have to be implement. It will be call when `statemachine.Stop()` calls. If not implement it, `NewStateMachine` will return error.
-            - func `Shutdown` haven't any arguments/return value.
-    1. generate StateMachine via `NewStateMachine` function with the diagram.
-    1. run StateMachine
+    1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
+    1. Prototype of guard function is `func() bool` (defined as type `Guard`).
+    1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
+    1. `func (t *T) Shutdown() {}` hook method have to be implement. It will be called back just before state machine stopped.
+      - func `Shutdown` haven't any arguments and return value.
+    1. generate and start StateMachine via `NewStateMachine` function with the diagram.
+      - If all action methods, all guard methods, and Shutdown method are not implement it, `NewStateMachine` will return error.
     1. send Event to StateMachine
-    1. Listen StateMachine response when send Shutdown event to StateMachine.
+    1. Listen StateMachine response when sent event that transit to end state t to StateMachine.
 
 ### example
 
@@ -62,11 +61,9 @@ func main() {
   m, err := sm.NewStateMachine(&t, "t.puml") // initial transit to State1
   if err != nil {panic(err)}
 
-  m.Start()
   m.Send(sm.NewEvent("Succeeded")) // transit to State2
   m.Send(sm.NewEvent("Succeeded")) // transit to State3
   m.Send(sm.NewEvent("Aborted"))   // call MaxCheck guard function, if MaxCheck returns true, transit to EndState. 
-  m.Stop() // stop state machine
   s := m.Listen() // Wait for stopping machine.
   if s != sm.Stopped {
     panic(fmt.Errorf(s))

@@ -2,10 +2,11 @@ package statemachine
 
 import (
 	"fmt"
-	"github.com/marrbor/golog"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/marrbor/golog"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRetryDuration(t *testing.T) {
@@ -127,7 +128,7 @@ func TestNewStateMachine1(t *testing.T) {
 	assert.NotNil(t, sm)
 
 	assert.EqualValues(t, 4, len(sm.states))
-	assert.EqualValues(t, "State1", sm.currentState.name)
+	assert.EqualValues(t, "State1", sm.GetState())
 
 	for _, s := range sm.states {
 		switch s.name {
@@ -209,6 +210,10 @@ func (q *qq) Retry() time.Duration {
 	return GradualIncrease
 }
 
+func (q *qq) Retry2() time.Duration {
+	return 1 * time.Second
+}
+
 func (q *qq) MaxCheck() bool {
 	golog.Info(fmt.Sprintf("count should be %d -> %d.\n", q.counter, q.counter+1))
 	q.counter += 1
@@ -219,30 +224,40 @@ func TestStateMachine(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
-	sm.Start()
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // initial transit to this state.
-	sm.Send(NewEvent("no effect"))                        // this event should be ignored
+	sn := sm.GetState()
+	assert.EqualValues(t, "State1", sn)
+	sm.Send(NewEvent("no effect")) // this event should be ignored
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // state should not be changed.
+	sn = sm.GetState()
+	assert.EqualValues(t, "State1", sn)
+	sm.Send(NewEvent("Succeeded"))
+
+	time.Sleep(1 * time.Second)
+
+	sn = sm.GetState()
+	assert.EqualValues(t, "State2", sn)
+
 	sm.Send(NewEvent("Succeeded"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State2", sm.currentState.name) // Succeed transit to this state.
-	sm.Send(NewEvent("Succeeded"))
-	time.Sleep(1 * time.Second)
+	sn = sm.GetState()
+	assert.EqualValues(t, "State3", sn)
 
-	assert.EqualValues(t, "State3", sm.currentState.name) // Succeed transit to this state.
 	sm.Send(NewEvent("Failed"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State3", sm.currentState.name) // Failed transit to this state.
+	sn = sm.GetState()
+	assert.EqualValues(t, "State3", sn)
+
 	sm.Send(NewEvent("Succeeded"))
 
 	s := sm.Listen() // Succeeded transit to this state.
-	assert.EqualValues(t, EndState.name, sm.currentState.name)
+	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
 
@@ -250,15 +265,15 @@ func TestStateMachine2(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
-	sm.Start()
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // initial transit to this state.
+	assert.EqualValues(t, "State1", sm.GetState()) // initial transit to this state.
 	sm.Send(NewEvent("Aborted"))
 	time.Sleep(1 * time.Second)
 
 	s := sm.Listen() // Succeeded transit to this state.
-	assert.EqualValues(t, EndState.name, sm.currentState.name)
+	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
 
@@ -266,18 +281,18 @@ func TestStateMachine3(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
-	sm.Start()
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // state should not be changed.
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
 	sm.Send(NewEvent("Succeeded"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State2", sm.currentState.name) // Succeed transit to this state.
+	assert.EqualValues(t, "State2", sm.GetState()) // Succeed transit to this state.
 	sm.Send(NewEvent("Aborted"))
 
 	s := sm.Listen() // Succeeded transit to this state.
-	assert.EqualValues(t, EndState.name, sm.currentState.name)
+	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
 
@@ -285,30 +300,30 @@ func TestStateMachine4(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
-	sm.Start()
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // state should not be changed.
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
 	sm.Send(NewEvent("Succeeded"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State2", sm.currentState.name) // Succeed transit to this state.
+	assert.EqualValues(t, "State2", sm.GetState()) // Succeed transit to this state.
 	sm.Send(NewEvent("Succeeded"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State3", sm.currentState.name) // Succeed transit to this state.
-	sm.Send(NewEvent("Aborted"))                          // count 1
+	assert.EqualValues(t, "State3", sm.GetState()) // Succeed transit to this state.
+	sm.Send(NewEvent("Aborted"))                   // count 1
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State3", sm.currentState.name) // Succeed transit to this state.
-	sm.Send(NewEvent("Aborted"))                          // count 2
+	assert.EqualValues(t, "State3", sm.GetState()) // Succeed transit to this state.
+	sm.Send(NewEvent("Aborted"))                   // count 2
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State3", sm.currentState.name) // Succeed transit to this state.
-	sm.Send(NewEvent("Aborted"))                          // count 3 should be abort.
+	assert.EqualValues(t, "State3", sm.GetState()) // Succeed transit to this state.
+	sm.Send(NewEvent("Aborted"))                   // count 3 should be abort.
 
 	s := sm.Listen() // Succeeded transit to this state.
-	assert.EqualValues(t, EndState.name, sm.currentState.name)
+	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
 
@@ -316,20 +331,38 @@ func TestStateMachine5(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	sm, err := NewStateMachine(&q, "test1.puml")
 	assert.NoError(t, err)
-	sm.Start()
+
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State1", sm.currentState.name) // state should not be changed.
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
 	sm.Send(NewEvent("Succeeded"))
 	time.Sleep(1 * time.Second)
 
-	assert.EqualValues(t, "State2", sm.currentState.name) // Succeed transit to this state.
-	sm.Send(NewEvent("Succeeded"))
+	assert.EqualValues(t, "State2", sm.GetState()) // Succeed transit to this state.
+	sm.Send(NewEvent("Aborted"))
 	time.Sleep(1 * time.Second)
 
-	sm.Stop()
 	s := sm.Listen() // Succeeded transit to this state.
-	assert.EqualValues(t, EndState.name, sm.currentState.name)
+	assert.EqualValues(t, EndState.name, sm.GetState())
+	assert.EqualValues(t, Stopped, s)
+}
+
+func TestStateMachine6(t *testing.T) {
+	golog.SetFilterLevel(golog.TRACE)
+	sm, err := NewStateMachine(&q, "test9.puml")
+	assert.NoError(t, err)
+
+	time.Sleep(1 * time.Second)
+
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
+	sm.Send(NewEvent("Try"))
+
+	time.Sleep(5 * time.Second)
+
+	// goto end status with stop timer.
+	sm.Send(NewEvent("Aborted"))
+	s := sm.Listen() // Succeeded transit to this state.
+	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
 
@@ -342,5 +375,5 @@ func TestNewStateMachine(t *testing.T) {
 func TestNewStateMachine2(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	_, err := NewStateMachine(&q, "test8.puml")
-	assert.EqualError(t,err,"following function(s) haven't be implemented: RetryX,SaveResultX,MaxCheckX")
+	assert.EqualError(t, err, "following function(s) haven't be implemented: RetryX,SaveResultX,MaxCheckX")
 }

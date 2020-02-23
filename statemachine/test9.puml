@@ -1,0 +1,5 @@
+@startuml
+[*] --> State1
+State1 --> State1 : Try / Retry2
+State1 --> [*] : Aborted
+@enduml

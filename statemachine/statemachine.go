@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marrbor/golog"
-
 	"github.com/google/uuid"
+	"github.com/marrbor/golog"
 )
 
 const (
@@ -23,7 +22,6 @@ const (
 	EndStateMark   = "[*]"
 
 	// pre defined event name
-	EventShutdown    = "shutdown"
 	FunctionShutdown = "Shutdown"
 
 	// action return value
@@ -82,8 +80,8 @@ var (
 	EndState = State{name: "-"}
 )
 
-// IsSame returns whether given state is same state or not.
-func (s *State) IsSame(ss *State) bool {
+// isSame returns whether given state is same state or not.
+func (s *State) isSame(ss *State) bool {
 	return s.name == ss.name
 }
 
@@ -110,11 +108,6 @@ type Event struct {
 	id      uuid.UUID
 	attempt int
 	delay   time.Duration
-}
-
-// IsShutdown returns whether given event is shutdown event or not.
-func (e *Event) IsShutdown() bool {
-	return e.name == EventShutdown
 }
 
 // NewEvent returns new Event instance
@@ -152,11 +145,6 @@ func (e *Event) calcRetryDuration(ret int64) bool {
 	}
 	e.delay *= 2 // 2+ time GradualIncrease.
 	return true
-}
-
-// NewShutdownEvent returns new Shutdown event instance.
-func NewShutdownEvent() *Event {
-	return NewEvent(EventShutdown)
 }
 
 //////////////////////////////////////////////////
@@ -205,6 +193,7 @@ type StateMachine struct {
 	states       []*State
 	eventQueue   eventQueue // event queue to pull event.
 	msgQueue     msgQueue   // message queue to Send message to external program.
+	retryTimer   *time.Timer
 }
 
 // Listen message returns message from this state machine. block until message sent.
@@ -212,20 +201,14 @@ func (sm *StateMachine) Listen() string {
 	return sm.msgQueue.pull()
 }
 
-// Start runs state machine
-func (sm *StateMachine) Start() {
-	go sm.run()
-}
-
-// Stop stop running state machine
-func (sm *StateMachine) Stop() {
-	golog.Debug("call Stop() !!!")
-	sm.Send(NewShutdownEvent())
-}
-
 // Send sends event to state machine
 func (sm *StateMachine) Send(ev *Event) {
 	sm.eventQueue.push(ev)
+}
+
+// GetState returns current state name
+func (sm *StateMachine) GetState() string {
+	return sm.currentState.name
 }
 
 // sendMessage Send callback message to caller.
@@ -237,7 +220,8 @@ func (sm *StateMachine) sendMessage(msg string) {
 func (sm *StateMachine) run() {
 	for {
 		ev := sm.eventQueue.pull()
-		golog.Trace(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.name, ev))
+		golog.Debug(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.name, ev.name))
+		golog.Debug(fmt.Sprintf("event id:%+v attempt:%d delay:%d", ev.id, ev.attempt, ev.delay))
 		if err := sm.transit(ev); err != nil {
 			if err == FinishToTransitError {
 				break
@@ -245,25 +229,28 @@ func (sm *StateMachine) run() {
 			golog.Error(err)
 		}
 	}
-	golog.Debug("exit state machine")
+	golog.Info("exit state machine")
 	sm.sendMessage(Stopped)
+}
+
+// finish cleanup state machine.
+func (sm *StateMachine) finish() {
+	// stop retry timer.
+	if sm.retryTimer != nil {
+		if !sm.retryTimer.Stop() {
+			<-sm.retryTimer.C // drain timer channel.
+		}
+	}
+	sm.currentState = &EndState
+	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
+	reflect.ValueOf(sm.bindClass).MethodByName(FunctionShutdown).Call([]reflect.Value{})
 }
 
 // transit make state transition in order to stt.
 func (sm *StateMachine) transit(ev *Event) error {
-
-	// when shutdown event detect, call Shutdown method and return FinishToTransitError to notify state machine stopped.
-	if ev.IsShutdown() {
-		golog.Trace("detect shutdown.")
-		reflect.ValueOf(sm.bindClass).MethodByName(FunctionShutdown).Call([]reflect.Value{})
-		golog.Trace(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
-		sm.currentState = &EndState
-		return FinishToTransitError
-	}
-
 	stt := sm.currentState.transitions[ev.name]
 	if stt == nil {
-		golog.Trace(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.name))
+		golog.Debug(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.name))
 		return nil
 	}
 
@@ -293,21 +280,28 @@ func (sm *StateMachine) transit(ev *Event) error {
 	if 0 < len(item.action) {
 		golog.Trace(fmt.Sprintf("do action: '%+v'", item.action))
 		ret := reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})[0].Int()
-		// retry and no transition when specified. TODO cancellation implement.
+		// retry and no transition when specified.
 		golog.Trace(fmt.Sprintf("action: '%+v' return %+v", item.action, ret))
 		if ev.calcRetryDuration(ret) {
 			golog.Trace(fmt.Sprintf("wait %+v for retry.", ev.delay))
-			_ = time.AfterFunc(ev.delay, func() { sm.Send(ev) })
+			sm.retryTimer = time.AfterFunc(ev.delay, func() {
+				sm.retryTimer = nil
+				sm.Send(ev)
+			})
 			return nil
 		}
 	}
 
 	// state transition
-	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
-	sm.currentState = item.next
-	if sm.currentState.IsSame(&EndState) {
+
+	if item.next.isSame(&EndState) {
+		// finish.
+		sm.finish()
 		return FinishToTransitError // reach to end state, shutdown machine.
 	}
+
+	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
+	sm.currentState = item.next
 	return nil
 }
 
@@ -420,6 +414,9 @@ func NewStateMachine(k interface{}, path string) (*StateMachine, error) {
 	for _, v := range stateMap {
 		sm.states = append(sm.states, v)
 	}
+
+	// start state machine
+	go sm.run()
 	return sm, nil
 }
 
