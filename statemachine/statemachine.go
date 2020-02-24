@@ -238,8 +238,8 @@ func (sm *StateMachine) finish() {
 			<-sm.retryTimer.C // drain timer channel.
 		}
 	}
-	sm.currentState = &EndState
 	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
+	sm.currentState = &EndState
 }
 
 // transit make state transition in order to stt.
