@@ -263,7 +263,7 @@ type transition struct {
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func NewStateMachine(k interface{}, path string, qSize int) (*StateMachine, error) {
+func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*StateMachine, error) {
 	// array of function name that have to be implemented but not found.
 	var missedFunctions []string
 
@@ -273,7 +273,7 @@ func NewStateMachine(k interface{}, path string, qSize int) (*StateMachine, erro
 		currentState: nil,
 		states:       make([]*State, 0),
 		eventQueue:   make(chan *Event, qSize),
-		msgQueue:     make(chan string),
+		msgQueue:     mq,
 	}
 
 	// construct state transition data in order to given uml file.
