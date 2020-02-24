@@ -249,7 +249,7 @@ func TestStateMachine(t *testing.T) {
 
 	sm.Send(NewEvent("Succeeded"))
 
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -265,7 +265,7 @@ func TestStateMachine2(t *testing.T) {
 	sm.Send(NewEvent("Aborted"))
 	time.Sleep(1 * time.Second)
 
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -284,7 +284,7 @@ func TestStateMachine3(t *testing.T) {
 	assert.EqualValues(t, "State2", sm.GetState()) // Succeed transit to this state.
 	sm.Send(NewEvent("Aborted"))
 
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -315,7 +315,7 @@ func TestStateMachine4(t *testing.T) {
 	assert.EqualValues(t, "State3", sm.GetState()) // Succeed transit to this state.
 	sm.Send(NewEvent("Aborted"))                   // count 3 should be abort.
 
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -335,7 +335,7 @@ func TestStateMachine5(t *testing.T) {
 	sm.Send(NewEvent("Aborted"))
 	time.Sleep(1 * time.Second)
 
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -354,7 +354,7 @@ func TestStateMachine6(t *testing.T) {
 
 	// goto end status with stop timer.
 	sm.Send(NewEvent("Aborted"))
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }
@@ -376,7 +376,7 @@ func TestStateMachine7(t *testing.T) {
 
 	// goto end status with stop timer.
 	sm.Send(NewEvent("Aborted"))
-	s := sm.Listen() // Succeeded transit to this state.
+	s := <-sm.msgQueue // Succeeded transit to this state.
 	assert.EqualValues(t, EndState.name, sm.GetState())
 	assert.EqualValues(t, Stopped, s)
 }

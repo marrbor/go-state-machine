@@ -74,7 +74,7 @@ type State struct {
 
 // Pre defined states
 var (
-	EndState = State{name: "-"}
+	EndState = State{name: "END"}
 )
 
 // isSame returns whether given state is same state or not.
@@ -145,62 +145,19 @@ func (e *Event) calcRetryDuration(ret int64) bool {
 }
 
 //////////////////////////////////////////////////
-// eventQueue
-type eventQueue chan *Event
-
-// push sends event to event queue.
-func (eq eventQueue) push(event *Event) {
-	eq <- event
-}
-
-// pull receives event from event queue. Blocked until event sent.
-func (eq eventQueue) pull() *Event {
-	return <-eq
-}
-
-// newEventQueue returns new event queue instance.
-func newEventQueue(size int) eventQueue {
-	return make(eventQueue, size)
-}
-
-//////////////////////////////////////////////////
-// msgQueue
-type msgQueue chan string
-
-// push sends message to queue
-func (mq msgQueue) push(msg string) {
-	mq <- msg
-}
-
-// pull receives message from queue blocked until message sent.
-func (mq msgQueue) pull() string {
-	return <-mq
-}
-
-// newMsgQueue returns new message queue instance.
-func newMsgQueue() msgQueue {
-	return make(msgQueue)
-}
-
-//////////////////////////////////////////////////
 // StateMachine
 type StateMachine struct {
 	bindClass    interface{}
 	currentState *State
 	states       []*State
-	eventQueue   eventQueue // event queue to pull event.
-	msgQueue     msgQueue   // message queue to Send message to external program.
+	eventQueue   chan *Event // event queue to pull event.
+	msgQueue     chan string // message queue to Send message to external program.
 	retryTimer   *time.Timer
 }
 
-// Listen message returns message from this state machine. block until message sent.
-func (sm *StateMachine) Listen() string {
-	return sm.msgQueue.pull()
-}
-
-// Send sends event to state machine
+// Send sends event to state machine.
 func (sm *StateMachine) Send(ev *Event) {
-	sm.eventQueue.push(ev)
+	sm.eventQueue <- ev
 }
 
 // GetState returns current state name
@@ -208,15 +165,10 @@ func (sm *StateMachine) GetState() string {
 	return sm.currentState.name
 }
 
-// sendMessage Send callback message to caller.
-func (sm *StateMachine) sendMessage(msg string) {
-	sm.msgQueue.push(msg)
-}
-
 // run wait for pull event and call transit when received.
 func (sm *StateMachine) run() {
 	for {
-		ev := sm.eventQueue.pull()
+		ev := <-sm.eventQueue
 		golog.Debug(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.name, ev.name))
 		golog.Debug(fmt.Sprintf("event id:%+v attempt:%d delay:%d", ev.id, ev.attempt, ev.delay))
 		if err := sm.transit(ev); err != nil {
@@ -227,7 +179,7 @@ func (sm *StateMachine) run() {
 		}
 	}
 	golog.Info("exit state machine")
-	sm.sendMessage(Stopped)
+	sm.msgQueue <- Stopped
 }
 
 // finish cleanup state machine.
@@ -320,8 +272,8 @@ func NewStateMachine(k interface{}, path string, qSize int) (*StateMachine, erro
 		bindClass:    k,
 		currentState: nil,
 		states:       make([]*State, 0),
-		eventQueue:   newEventQueue(qSize),
-		msgQueue:     newMsgQueue(),
+		eventQueue:   make(chan *Event, qSize),
+		msgQueue:     make(chan string),
 	}
 
 	// construct state transition data in order to given uml file.
