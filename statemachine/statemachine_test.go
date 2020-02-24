@@ -112,8 +112,6 @@ func TestParser9(t *testing.T) {
 
 type Z struct{}
 
-func (z *Z) Shutdown() {}
-
 var z Z
 
 func TestNewStateMachineNG(t *testing.T) {
@@ -182,7 +180,7 @@ func TestNewStateMachineNG7(t *testing.T) {
 	var x X
 	sm, err := NewStateMachine(&x, "test7.puml", 1)
 	assert.Nil(t, sm)
-	assert.EqualError(t, err, "following function(s) haven't be implemented: Shutdown,MaxCheck")
+	assert.EqualError(t, err, "following function(s) haven't be implemented: MaxCheck")
 }
 
 type qq struct {
@@ -194,11 +192,6 @@ var q qq
 
 func (q *qq) SaveResult() time.Duration {
 	golog.Info("Do SaveResult")
-	return NoRetry
-}
-
-func (q *qq) Shutdown() time.Duration {
-	golog.Info("Do Shutdown")
 	return NoRetry
 }
 

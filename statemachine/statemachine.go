@@ -21,9 +21,6 @@ const (
 	StartStateMark = "[*]"
 	EndStateMark   = "[*]"
 
-	// pre defined event name
-	FunctionShutdown = "Shutdown"
-
 	// action return value
 	NoRetry         = 0
 	GradualIncrease = -1
@@ -243,7 +240,6 @@ func (sm *StateMachine) finish() {
 	}
 	sm.currentState = &EndState
 	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
-	reflect.ValueOf(sm.bindClass).MethodByName(FunctionShutdown).Call([]reflect.Value{})
 }
 
 // transit make state transition in order to stt.
@@ -326,11 +322,6 @@ func NewStateMachine(k interface{}, path string, qSize int) (*StateMachine, erro
 		states:       make([]*State, 0),
 		eventQueue:   newEventQueue(qSize),
 		msgQueue:     newMsgQueue(),
-	}
-
-	// check Shutdown Method implemented or not.
-	if !reflect.ValueOf(k).MethodByName(FunctionShutdown).IsValid() {
-		missedFunctions = append(missedFunctions, FunctionShutdown)
 	}
 
 	// construct state transition data in order to given uml file.

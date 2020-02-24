@@ -20,15 +20,13 @@ State3 --> State3 : Failed
 ![](./test1.png)
 
 ## usage
-1. write plant uml state machine diagram.
+1. write Plant UML state machine diagram.
 1. write state transition code:
     1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
     1. Prototype of guard function is `func() bool` (defined as type `Guard`).
     1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
-    1. `func (t *T) Shutdown() {}` hook method have to be implement. It will be called back just before state machine stopped.
-      - func `Shutdown` haven't any arguments and return value.
-    1. generate and start StateMachine via `NewStateMachine` function with the diagram.
-      - If all action methods, all guard methods, and Shutdown method are not implement it, `NewStateMachine` will return error.
+    1. generate and start StateMachine via `NewStateMachine` function with the Plant UML state machine diagram.
+      - `NewStateMachine` parsed given diagram. When any non implement action and/or guard methods found, `NewStateMachine` will return error.
     1. send Event to StateMachine
     1. Listen StateMachine response when sent event that transit to end state t to StateMachine.
 
@@ -51,7 +49,6 @@ type T struct{
 
 // Action functions
 func (t *T) SaveResult() time.Duration { return 1 * time.Second }
-func (t *T) Shutdown() time.Duration { return 0 }
 
 // Guard functions
 func (t *T) MaxCheck() bool { return true }
