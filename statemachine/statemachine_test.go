@@ -33,7 +33,7 @@ func TestRetryDuration(t *testing.T) {
 }
 
 func TestParser1(t *testing.T) {
-	tr := parseLine("[*] --> State1")
+	tr := parseTransition("[*] --> State1")
 	assert.EqualValues(t, &transition{
 		from:    StartStateMark,
 		to:      "State1",
@@ -49,7 +49,7 @@ func TestParser1(t *testing.T) {
 }
 
 func TestParser2(t *testing.T) {
-	tr := parseLine("State1 --> State2 : Succeeded")
+	tr := parseTransition("State1 --> State2 : Succeeded")
 	assert.EqualValues(t, "State1", tr.from)
 	assert.EqualValues(t, "State2", tr.to)
 	assert.EqualValues(t, "Succeeded", tr.trigger)
@@ -58,7 +58,7 @@ func TestParser2(t *testing.T) {
 }
 
 func TestParser3(t *testing.T) {
-	tr := parseLine("State1 --> [*]: Aborted")
+	tr := parseTransition("State1 --> [*]: Aborted")
 	assert.EqualValues(t, "State1", tr.from)
 	assert.EqualValues(t, EndStateMark, tr.to)
 	assert.EqualValues(t, "Aborted", tr.trigger)
@@ -67,7 +67,7 @@ func TestParser3(t *testing.T) {
 }
 
 func TestParser4(t *testing.T) {
-	tr := parseLine("State2 --> State3: Succeeded/Act1")
+	tr := parseTransition("State2 --> State3: Succeeded/Act1")
 	assert.EqualValues(t, "State2", tr.from)
 	assert.EqualValues(t, "State3", tr.to)
 	assert.EqualValues(t, "Succeeded", tr.trigger)
@@ -76,7 +76,7 @@ func TestParser4(t *testing.T) {
 }
 
 func TestParser5(t *testing.T) {
-	tr := parseLine("State2 --> [*] :Aborted [checkAbort]  / Act2")
+	tr := parseTransition("State2 --> [*] :Aborted [checkAbort]  / Act2")
 	assert.EqualValues(t, "State2", tr.from)
 	assert.EqualValues(t, EndStateMark, tr.to)
 	assert.EqualValues(t, "Aborted", tr.trigger)
@@ -84,7 +84,7 @@ func TestParser5(t *testing.T) {
 	assert.EqualValues(t, "Act2", tr.action)
 }
 func TestParser6(t *testing.T) {
-	tr := parseLine("State3 --> State3 : TimeOut")
+	tr := parseTransition("State3 --> State3 : TimeOut")
 	assert.EqualValues(t, "State3", tr.from)
 	assert.EqualValues(t, "State3", tr.to)
 	assert.EqualValues(t, "TimeOut", tr.trigger)
@@ -93,7 +93,7 @@ func TestParser6(t *testing.T) {
 }
 
 func TestParser7(t *testing.T) {
-	tr := parseLine("State3 --> [*]: Succeeded / SaveResult")
+	tr := parseTransition("State3 --> [*]: Succeeded / SaveResult")
 	assert.EqualValues(t, "State3", tr.from)
 	assert.EqualValues(t, EndStateMark, tr.to)
 	assert.EqualValues(t, "Succeeded", tr.trigger)
@@ -101,12 +101,12 @@ func TestParser7(t *testing.T) {
 	assert.EqualValues(t, "SaveResult", tr.action)
 }
 func TestParser8(t *testing.T) {
-	tr := parseLine("@startuml")
+	tr := parseTransition("@startuml")
 	assert.Nil(t, tr)
 }
 
 func TestParser9(t *testing.T) {
-	tr := parseLine("@enduml")
+	tr := parseTransition("@enduml")
 	assert.Nil(t, tr)
 }
 
@@ -383,6 +383,68 @@ func TestStateMachine7(t *testing.T) {
 	assert.EqualValues(t, Stopped, s)
 }
 
+type A struct {
+	sm *StateMachine
+}
+
+func (a *A) EnterState1() {
+	golog.Info("EnterState1")
+}
+func (a *A) DoState1() {
+	golog.Info("DoState1")
+	msg := <-a.sm.toDoActionQueue
+	response := "State1"
+	if msg.Error() != response {
+		response = fmt.Sprintf("invaild state:%s", msg)
+	}
+	a.sm.fromDoActionQueue <- fmt.Errorf(response)
+}
+func (a *A) ExitState1() {
+	golog.Info("ExitState1")
+}
+func (a *A) EnterState2() {
+	golog.Info("EnterState2")
+}
+func (a *A) DoState2() {
+	golog.Info("DoState2")
+	msg := <-a.sm.toDoActionQueue
+	response := "State2"
+	if msg.Error() != response {
+		response = fmt.Sprintf("invaild state:%s", msg)
+	}
+	a.sm.fromDoActionQueue <- fmt.Errorf(response)
+}
+func (a *A) ExitState2() {
+	golog.Info("ExitState2")
+}
+
+var a A
+
+func TestStateMachine8(t *testing.T) {
+	golog.SetFilterLevel(golog.TRACE)
+	sm, err := NewStateMachine(&a, "test10.puml", 1, mq)
+	a.sm = sm
+	assert.NoError(t, err)
+
+	time.Sleep(1 * time.Second)
+
+	assert.EqualValues(t, "State1", sm.GetState()) // state should not be changed.
+	sm.Send(NewEvent("Succeeded"))
+	time.Sleep(5 * time.Second)
+
+	// goto end status
+	sm.Send(NewEvent("Succeeded"))
+	s := <-sm.msgQueue // Succeeded transit to this state.
+	assert.EqualValues(t, EndState.name, sm.GetState())
+	assert.EqualValues(t, Stopped, s)
+}
+
+func TestStateMachine9(t *testing.T) {
+	golog.SetFilterLevel(golog.TRACE)
+	_, err := NewStateMachine(&q, "test11.puml", 1, mq)
+	assert.EqualError(t, err, "following function(s) haven't be implemented: EnterState3,DoState3,ExitState3")
+}
+
 func TestNewStateMachine(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	_, err := NewStateMachine(&q, "test7.puml", 1, mq)
@@ -393,4 +455,14 @@ func TestNewStateMachine2(t *testing.T) {
 	golog.SetFilterLevel(golog.TRACE)
 	_, err := NewStateMachine(&q, "test8.puml", 1, mq)
 	assert.EqualError(t, err, "following function(s) haven't be implemented: RetryX,SaveResultX,MaxCheckX")
+}
+
+func TestIsTrigger(t *testing.T) {
+	assert.EqualValues(t, true, isTiming("entry"))
+	assert.EqualValues(t, true, isTiming("do"))
+	assert.EqualValues(t, true, isTiming("exit"))
+
+	assert.EqualValues(t, false, isTiming("Entry"))
+	assert.EqualValues(t, false, isTiming("Do"))
+	assert.EqualValues(t, false, isTiming("Exit"))
 }

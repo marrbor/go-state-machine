@@ -1,0 +1,11 @@
+@startuml
+[*] --> State1
+State1 --> State2 : Succeeded
+State1 : entry / EnterState1
+State1 : do / DoState1
+State1 : exit / ExitState1
+State2 : entry / EnterState2
+State2 : do / DoState2
+State2 : exit / ExitState2
+State2 --> [*] : Succeeded
+@enduml

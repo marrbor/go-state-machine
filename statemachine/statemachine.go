@@ -21,7 +21,7 @@ const (
 	StartStateMark = "[*]"
 	EndStateMark   = "[*]"
 
-	// action return value
+	// timing return value
 	NoRetry         = 0
 	GradualIncrease = -1
 
@@ -34,9 +34,9 @@ var (
 
 	// UML error
 	MultipleInitialTransitionError    = fmt.Errorf("multiple initial transition defined")
-	TriggerWithInitialTransitionError = fmt.Errorf("initial transition has not have trigger")
+	TriggerWithInitialTransitionError = fmt.Errorf("initial transition has not have timing")
 	GuardWithInitialTransitionError   = fmt.Errorf("initial transition has not have guard condition")
-	ActionWithInitialTransitionError  = fmt.Errorf("initial transition has not have action")
+	ActionWithInitialTransitionError  = fmt.Errorf("initial transition has not have timing")
 	NoEffectiveTransitionError        = fmt.Errorf("no effective transition found")
 
 	reWhiteSpace = regexp.MustCompile(`\s+`)
@@ -53,8 +53,8 @@ type (
 // Entry unit of state transition table.
 type STTItem struct {
 	guard  string // guard function name which called to determine whether do transition or not.
-	action string // action function name to run with this transition
-	next   *State // next state after action runs.
+	action string // timing function name to run with this transition
+	next   *State // next state after timing runs.
 }
 
 //////////////////////////////////////////////////
@@ -70,6 +70,9 @@ func (s stt) add(ev *Event, item STTItem) {
 type State struct {
 	name        string
 	transitions stt
+	entry       string
+	exit        string
+	do          string
 }
 
 // Pre defined states
@@ -119,7 +122,7 @@ func NewEvent(name string) *Event {
 
 // calcRetryDuration returns whether has to re-send this event or not.
 // When need to retry, set wait duration for re-send and increment attempt times.
-// Input parameter is return value of action function.
+// Input parameter is return value of timing function.
 func (e *Event) calcRetryDuration(ret int64) bool {
 	if ret == NoRetry {
 		return false // no need to retry
@@ -147,12 +150,14 @@ func (e *Event) calcRetryDuration(ret int64) bool {
 //////////////////////////////////////////////////
 // StateMachine
 type StateMachine struct {
-	bindClass    interface{}
-	currentState *State
-	states       []*State
-	eventQueue   chan *Event // event queue to pull event.
-	msgQueue     chan string // message queue to Send message to external program.
-	retryTimer   *time.Timer
+	bindClass         interface{}
+	currentState      *State
+	states            []*State
+	eventQueue        chan *Event // event queue to pull event.
+	msgQueue          chan string // message queue to Send message to external program.
+	retryTimer        *time.Timer
+	toDoActionQueue   chan error // send message to 'do action' goroutine.
+	fromDoActionQueue chan error // sent message from 'do action' goroutine.
 }
 
 // Send sends event to state machine.
@@ -194,6 +199,36 @@ func (sm *StateMachine) finish() {
 	sm.currentState = &EndState
 }
 
+// preTransit calls exit functions if needed.
+func (sm *StateMachine) preTransit() {
+	do := sm.currentState.do
+	if 0 < len(do) {
+		golog.Trace("Stop do action.")
+		sm.toDoActionQueue <- fmt.Errorf(sm.currentState.name)
+		sn := <-sm.fromDoActionQueue
+		if sn.Error() != sm.currentState.name {
+			golog.Error(fmt.Sprintf("unexpected message from (%s) detect", sn.Error()))
+		}
+	}
+
+	exit := sm.currentState.exit
+	if 0 < len(exit) {
+		reflect.ValueOf(sm.bindClass).MethodByName(exit).Call([]reflect.Value{})
+	}
+}
+
+// postTransit calls enter functions if needed.
+func (sm *StateMachine) postTransit() {
+	entry := sm.currentState.entry
+	if 0 < len(entry) {
+		reflect.ValueOf(sm.bindClass).MethodByName(entry).Call([]reflect.Value{})
+	}
+	do := sm.currentState.do
+	if 0 < len(do) {
+		go reflect.ValueOf(sm.bindClass).MethodByName(do).Call([]reflect.Value{})
+	}
+}
+
 // transit make state transition in order to stt.
 func (sm *StateMachine) transit(ev *Event) error {
 	stt := sm.currentState.transitions[ev.name]
@@ -224,12 +259,12 @@ func (sm *StateMachine) transit(ev *Event) error {
 		return nil
 	}
 
-	// do action if defined
+	// do timing if defined
 	if 0 < len(item.action) {
-		golog.Trace(fmt.Sprintf("do action: '%+v'", item.action))
+		golog.Trace(fmt.Sprintf("do timing: '%+v'", item.action))
 		ret := reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})[0].Int()
 		// retry and no transition when specified.
-		golog.Trace(fmt.Sprintf("action: '%+v' return %+v", item.action, ret))
+		golog.Trace(fmt.Sprintf("timing: '%+v' return %+v", item.action, ret))
 		if ev.calcRetryDuration(ret) {
 			golog.Trace(fmt.Sprintf("wait %+v for retry.", ev.delay))
 			sm.retryTimer = time.AfterFunc(ev.delay, func() {
@@ -240,7 +275,9 @@ func (sm *StateMachine) transit(ev *Event) error {
 		}
 	}
 
-	// state transition
+	// state transition. run exit action if specified.
+	sm.preTransit()
+	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
 
 	if item.next.isSame(&EndState) {
 		// finish.
@@ -248,8 +285,9 @@ func (sm *StateMachine) transit(ev *Event) error {
 		return FinishToTransitError // reach to end state, shutdown machine.
 	}
 
-	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
+	// entering new state. run entry and/or do action if specified.
 	sm.currentState = item.next
+	sm.postTransit()
 	return nil
 }
 
@@ -262,6 +300,28 @@ type transition struct {
 	action  string
 }
 
+// timing data import from plant uml line used at parsing.
+type timing struct {
+	state    string
+	timing   string
+	function string
+}
+
+// isTiming returns whether given string is timing or not.
+func isTiming(s string) bool {
+	return s == "entry" || s == "do" || s == "exit"
+}
+
+// getState add state that given name. if it has not generated yet, generate it.
+func getState(states map[string]*State, state string) *State {
+	s, ok := states[state]
+	if !ok {
+		s = NewState(state) // found new state
+		states[s.name] = s
+	}
+	return s
+}
+
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
 func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*StateMachine, error) {
 	// array of function name that have to be implemented but not found.
@@ -269,11 +329,13 @@ func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*St
 
 	// provision return value.
 	sm := &StateMachine{
-		bindClass:    k,
-		currentState: nil,
-		states:       make([]*State, 0),
-		eventQueue:   make(chan *Event, qSize),
-		msgQueue:     mq,
+		bindClass:         k,
+		currentState:      nil,
+		states:            make([]*State, 0),
+		eventQueue:        make(chan *Event, qSize),
+		msgQueue:          mq,
+		fromDoActionQueue: make(chan error),
+		toDoActionQueue:   make(chan error),
 	}
 
 	// construct state transition data in order to given uml file.
@@ -287,12 +349,34 @@ func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*St
 
 	scanner := bufio.NewScanner(fp)
 	for scanner.Scan() {
-		tr := parseLine(scanner.Text())
+		line := scanner.Text()
+		tr := parseTransition(line)
 		if tr == nil {
+			tg := parseTiming(line)
+			if tg == nil {
+				continue // seek next entry.
+			}
+
+			// found timing function line.
+			if !reflect.ValueOf(k).MethodByName(tg.function).IsValid() {
+				missedFunctions = append(missedFunctions, tg.function)
+			}
+
+			s := getState(stateMap, tg.state)
+			switch tg.timing {
+			case "entry":
+				s.entry = tg.function
+			case "do":
+				s.do = tg.function
+			case "exit":
+				s.exit = tg.function
+			default:
+				golog.Error(fmt.Sprintf("invalid timing (%s) detect", tg.timing))
+			}
 			continue // seek next entry.
 		}
 
-		// check action and/or guard function exists or not.
+		// check timing and/or guard function exists or not.
 		for _, f := range []string{tr.action, tr.guard} {
 			if 0 < len(f) {
 				if !reflect.ValueOf(k).MethodByName(f).IsValid() {
@@ -315,35 +399,19 @@ func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*St
 			if tr.action != "" {
 				return nil, ActionWithInitialTransitionError
 			}
+			if tr.to == EndStateMark {
+				// initial transition never goto end state.
+				return nil, NoEffectiveTransitionError
+			}
 
 			// set destination state into first state of this state machine
-			s, ok := stateMap[tr.to]
-			if !ok {
-				// found new state
-				if tr.to == EndStateMark {
-					// initial transition never goto end state.
-					return nil, NoEffectiveTransitionError
-				}
-				s = NewState(tr.to)
-				stateMap[s.name] = s
-			}
-			sm.currentState = s
+			sm.currentState = getState(stateMap, tr.to)
 			continue
 		}
 
 		// other transition. generate both from/to states and register them if they have not registered yet.
-		s, ok := stateMap[tr.from]
-		if !ok {
-			// found new state
-			s = NewState(tr.from)
-			stateMap[s.name] = s
-		}
-		n, ok := stateMap[tr.to]
-		if !ok {
-			// found new state
-			n = NewState(tr.to)
-			stateMap[n.name] = n
-		}
+		s := getState(stateMap, tr.from)
+		n := getState(stateMap, tr.to)
 		item := STTItem{guard: tr.guard, action: tr.action, next: n}
 		s.addTransitionItem(NewEvent(tr.trigger), item)
 	}
@@ -359,12 +427,13 @@ func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*St
 	}
 
 	// start state machine
+	sm.postTransit() // run entry/do action if needed.
 	go sm.run()
 	return sm, nil
 }
 
-// parseLine extract transition information from given string.
-func parseLine(s string) *transition {
+// parseTransition extract transition information from given string.
+func parseTransition(s string) *transition {
 	var ret transition
 	ss := reWhiteSpace.ReplaceAllString(s, "")
 	a := strings.Split(ss, "-->")
@@ -387,7 +456,7 @@ func parseLine(s string) *transition {
 	ret.to = b[0]
 	c := strings.Split(b[1], "/")
 	if 1 < len(c) {
-		// action defined.
+		// timing defined.
 		ret.action = c[1]
 	}
 	d := strings.Split(strings.TrimRight(c[0], "]"), "[")
@@ -398,5 +467,32 @@ func parseLine(s string) *transition {
 	}
 
 	ret.guard = d[1]
+	return &ret
+}
+
+// parseTiming extract transition information from given string.
+func parseTiming(s string) *timing {
+	var ret timing
+	ss := reWhiteSpace.ReplaceAllString(s, "")
+	if i := strings.Index(ss, "-->"); 0 <= i {
+		return nil // this is not a timing line, maybe transition line.
+	}
+
+	a := strings.Split(ss, ":")
+	if len(a) != 2 {
+		return nil // this is not a timing line.
+	}
+
+	// Get state name that owned this timing.
+	ret.state = a[0]
+
+	// split to timing, function.
+	b := strings.Split(a[1], "/")
+	if len(b) != 2 || !isTiming(b[0]) {
+		return nil // this is not a timing line.
+	}
+
+	ret.timing = b[0]
+	ret.function = b[1]
 	return &ret
 }
