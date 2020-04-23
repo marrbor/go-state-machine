@@ -68,7 +68,7 @@ func (s stt) add(ev *Event, item STTItem) {
 //////////////////////////////////////////////////
 // State
 type State struct {
-	name        string
+	Name        string
 	transitions stt
 	entry       string
 	exit        string
@@ -77,12 +77,12 @@ type State struct {
 
 // Pre defined states
 var (
-	EndState = State{name: "END"}
+	EndState = State{Name: "END"}
 )
 
-// isSame returns whether given state is same state or not.
-func (s *State) isSame(ss *State) bool {
-	return s.name == ss.name
+// IsSame returns whether given state is same state or not.
+func (s *State) IsSame(ss *State) bool {
+	return s.Name == ss.Name
 }
 
 // addTransitionItem adds STTItem into stt.
@@ -96,7 +96,7 @@ func NewState(name string) *State {
 		return &EndState
 	}
 	return &State{
-		name:        name,
+		Name:        name,
 		transitions: make(stt),
 	}
 }
@@ -150,14 +150,15 @@ func (e *Event) calcRetryDuration(ret int64) bool {
 //////////////////////////////////////////////////
 // StateMachine
 type StateMachine struct {
-	bindClass         interface{}
-	currentState      *State
-	states            []*State
+	bindClass    interface{}
+	currentState *State
+	states       []*State
+	retryTimer   *time.Timer
+
 	eventQueue        chan *Event // event queue to pull event.
-	msgQueue          chan string // message queue to Send message to external program.
-	retryTimer        *time.Timer
-	toDoActionQueue   chan error // send message to 'do action' goroutine.
-	fromDoActionQueue chan error // sent message from 'do action' goroutine.
+	toOwnerQueue      chan string // message queue to send message to owner program.
+	toDoActionQueue   chan string // send message to 'do action' goroutine.
+	fromDoActionQueue chan string // sent message from 'do action' goroutine.
 }
 
 // Send sends event to state machine.
@@ -165,16 +166,21 @@ func (sm *StateMachine) Send(ev *Event) {
 	sm.eventQueue <- ev
 }
 
-// GetState returns current state name
-func (sm *StateMachine) GetState() string {
-	return sm.currentState.name
+// ReplyFromDoAction sends event specified do-action exited.
+func (sm *StateMachine) FinishDoAction(state string) {
+	sm.fromDoActionQueue <- state
+}
+
+// GetState returns current state.
+func (sm *StateMachine) GetState() *State {
+	return sm.currentState
 }
 
 // run wait for pull event and call transit when received.
 func (sm *StateMachine) run() {
 	for {
 		ev := <-sm.eventQueue
-		golog.Debug(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.name, ev.name))
+		golog.Debug(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.Name, ev.name))
 		golog.Debug(fmt.Sprintf("event id:%+v attempt:%d delay:%d", ev.id, ev.attempt, ev.delay))
 		if err := sm.transit(ev); err != nil {
 			if err == FinishToTransitError {
@@ -184,7 +190,7 @@ func (sm *StateMachine) run() {
 		}
 	}
 	golog.Info("exit state machine")
-	sm.msgQueue <- Stopped
+	sm.toOwnerQueue <- Stopped
 }
 
 // finish cleanup state machine.
@@ -195,7 +201,7 @@ func (sm *StateMachine) finish() {
 			<-sm.retryTimer.C // drain timer channel.
 		}
 	}
-	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.name, EndState.name))
+	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.Name, EndState.Name))
 	sm.currentState = &EndState
 }
 
@@ -204,10 +210,10 @@ func (sm *StateMachine) preTransit() {
 	do := sm.currentState.do
 	if 0 < len(do) {
 		golog.Trace("Stop do action.")
-		sm.toDoActionQueue <- fmt.Errorf(sm.currentState.name)
+		sm.toDoActionQueue <- sm.currentState.Name
 		sn := <-sm.fromDoActionQueue
-		if sn.Error() != sm.currentState.name {
-			golog.Error(fmt.Sprintf("unexpected message from (%s) detect", sn.Error()))
+		if sn != sm.currentState.Name {
+			golog.Error(fmt.Sprintf("unexpected message from (%s) detect", sn))
 		}
 	}
 
@@ -233,7 +239,7 @@ func (sm *StateMachine) postTransit() {
 func (sm *StateMachine) transit(ev *Event) error {
 	stt := sm.currentState.transitions[ev.name]
 	if stt == nil {
-		golog.Debug(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.name))
+		golog.Debug(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.Name))
 		return nil
 	}
 
@@ -255,7 +261,7 @@ func (sm *StateMachine) transit(ev *Event) error {
 	}
 
 	if item == nil {
-		golog.Trace(fmt.Sprintf("event %s ignored at state %s since guard condition not match.", ev.name, sm.currentState.name))
+		golog.Trace(fmt.Sprintf("event %s ignored at state %s since guard condition not match.", ev.name, sm.currentState.Name))
 		return nil
 	}
 
@@ -277,9 +283,9 @@ func (sm *StateMachine) transit(ev *Event) error {
 
 	// state transition. run exit action if specified.
 	sm.preTransit()
-	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
+	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.Name, item.next.Name))
 
-	if item.next.isSame(&EndState) {
+	if item.next.IsSame(&EndState) {
 		// finish.
 		sm.finish()
 		return FinishToTransitError // reach to end state, shutdown machine.
@@ -317,13 +323,13 @@ func getState(states map[string]*State, state string) *State {
 	s, ok := states[state]
 	if !ok {
 		s = NewState(state) // found new state
-		states[s.name] = s
+		states[s.Name] = s
 	}
 	return s
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*StateMachine, error) {
+func NewStateMachine(k interface{}, path string, qSize int, oq, dq chan string) (*StateMachine, error) {
 	// array of function name that have to be implemented but not found.
 	var missedFunctions []string
 
@@ -333,9 +339,9 @@ func NewStateMachine(k interface{}, path string, qSize int, mq chan string) (*St
 		currentState:      nil,
 		states:            make([]*State, 0),
 		eventQueue:        make(chan *Event, qSize),
-		msgQueue:          mq,
-		fromDoActionQueue: make(chan error),
-		toDoActionQueue:   make(chan error),
+		toOwnerQueue:      oq,
+		fromDoActionQueue: make(chan string),
+		toDoActionQueue:   dq,
 	}
 
 	// construct state transition data in order to given uml file.
