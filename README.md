@@ -109,8 +109,5 @@ func main() {
 }
 ```
 
-## Todo 
-- Support entry/exit activities in state.
-
 ## License
 MIT
