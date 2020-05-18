@@ -96,6 +96,7 @@ func TestStateMachine(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -133,6 +134,7 @@ func TestStateMachine2(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -150,6 +152,7 @@ func TestStateMachine3(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -170,6 +173,7 @@ func TestStateMachine4(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -202,6 +206,7 @@ func TestStateMachine5(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -223,6 +228,7 @@ func TestStateMachine6(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test9.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -243,6 +249,7 @@ func TestStateMachine7(t *testing.T) {
 	assert.NoError(t, err)
 	sm, err := statemachine.NewStateMachine(&q, "test1.puml", 1, mq, nil)
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 
@@ -307,6 +314,7 @@ func TestStateMachine8(t *testing.T) {
 	sm, err := statemachine.NewStateMachine(&a, "test10.puml", 1, mq, a.dq)
 	a.sm = sm
 	assert.NoError(t, err)
+	sm.Run()
 
 	time.Sleep(1 * time.Second)
 

@@ -34,8 +34,9 @@ State3 --> State3 : Failed
       - Have to listen this channel in the function.
       - When receive a string (the content is the state name) from this channel, do-function have to do closing procedure and call `FinishDoAction` with state name.
     1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
-    1. generate and start StateMachine via `NewStateMachine` function with the Plant UML state machine diagram.
+    1. generate StateMachine via `NewStateMachine` function with the Plant UML state machine diagram.
       - `NewStateMachine` parsed given diagram. When any non implement action and/or guard methods found, `NewStateMachine` will return error.
+    1. Start StateMachine with `Run` method.
     1. send Event to StateMachine
     1. Listen StateMachine response when sent event that transit to end state t to StateMachine.
 
@@ -97,6 +98,7 @@ func main() {
 
   m, err := sm.NewStateMachine(&t, "t.puml", 1, oq, dq) // initial transit to State1
   if err != nil {panic(err)}
+  m.Run() // do initial transition
 
   m.Send(sm.NewEvent("Succeeded")) // transit to State2
   m.Send(sm.NewEvent("Succeeded")) // transit to State3

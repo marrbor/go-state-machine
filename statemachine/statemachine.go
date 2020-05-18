@@ -161,6 +161,13 @@ type StateMachine struct {
 	fromDoActionQueue chan string // sent message from 'do action' goroutine.
 }
 
+// Run starts state machine.
+func (sm *StateMachine) Run() {
+	// start state machine
+	sm.postTransit() // run entry/do action if needed.
+	go sm.run()
+}
+
 // Send sends event to state machine.
 func (sm *StateMachine) Send(ev *Event) {
 	sm.eventQueue <- ev
@@ -432,9 +439,6 @@ func NewStateMachine(k interface{}, path string, qSize int, oq, dq chan string) 
 		sm.states = append(sm.states, v)
 	}
 
-	// start state machine
-	sm.postTransit() // run entry/do action if needed.
-	go sm.run()
 	return sm, nil
 }
 
