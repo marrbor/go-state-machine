@@ -3,7 +3,6 @@ package statemachine
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/marrbor/golog"
 	"github.com/stretchr/testify/assert"
@@ -94,21 +93,16 @@ type qq struct {
 
 var q qq
 
-func (q *qq) SaveResult() time.Duration {
+func (q *qq) SaveResult() {
 	golog.Info("Do SaveResult")
-	return NoRetry
 }
 
-func (q *qq) Retry() time.Duration {
-	q.retry += 1
-	if 3 <= q.retry {
-		return NoRetry
-	}
-	return GradualIncrease
+func (q *qq) Retry() {
+	golog.Info("Retry")
 }
 
-func (q *qq) Retry2() time.Duration {
-	return 1 * time.Second
+func (q *qq) Retry2() {
+	golog.Info("Retry2")
 }
 
 func (q *qq) MaxCheck() bool {
@@ -119,24 +113,23 @@ func (q *qq) MaxCheck() bool {
 
 func TestNewStateMachine(t *testing.T) {
 	mq := make(chan string)
-	dq := make(chan string)
 
-	sm, err := NewStateMachine(&q, "test1.puml", 1, mq, dq)
+	sm, err := NewStateMachine(&q, "test1.puml", 1, mq)
 	assert.NoError(t, err)
 	assert.NotNil(t, sm)
 
 	assert.EqualValues(t, 4, len(sm.states))
-	assert.EqualValues(t, "State1", sm.GetState().Name)
+	assert.EqualValues(t, "State1", sm.GetState())
 
 	for _, s := range sm.states {
-		switch s.Name {
+		switch s.name {
 		case "State1":
 			assert.EqualValues(t, 2, len(s.transitions))
 		case "State2":
 			assert.EqualValues(t, 2, len(s.transitions))
 		case "State3":
 			assert.EqualValues(t, 3, len(s.transitions))
-		case EndState.Name:
+		case endState.name:
 			assert.EqualValues(t, 0, len(s.transitions))
 		default:
 			t.Errorf("invalid state data detect: %+v", s)

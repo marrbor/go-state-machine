@@ -25,16 +25,14 @@ State3 --> State3 : Failed
 ## usage
 1. write Plant UML state machine diagram.
 1. write state transition code:
-    1. Prototype of action function is `func()`
-    1. Prototype of guard function is `func() bool`
+    1. Prototype of action function is `func()` (No arguments/No return values).
+    1. Prototype of guard function is `func() bool` (No arguments).
     1. Prototype of entry/exit function is `func()` (No arguments/No return values).
-    1. Prototype of do-function is `func()` (No arguments/No return values).
-      - do-function must not break its procedure. when error occurred, logged it.
-      - Have to make a `chan string` and set it into the last arguments of `NewStateMachine`.
-      - Have to listen this channel in the function.
-      - When receive a string (the content is the state name) from this channel, do-function have to do closing procedure and call `FinishDoAction` with state name.
-    1. Both action and guard function must be started with upper case since they will be called from [reflect package](https://golang.org/pkg/reflect/).
-    1. generate StateMachine via `NewStateMachine` function with the Plant UML state machine diagram.
+    1. Prototype of do-action function is `func() time.Duration` (No arguments).
+      - do-action function must return time.Duration value. State machine set timer for returned duration and when timer expired, call do-action function again.
+      - do-action function may return zero (and minus) time.Duration value. In this case, state machine never call do-action function again.
+    1. All action, guard, entry, exit, and do-action must be started with upper case since they will be called from external [reflect package](https://golang.org/pkg/reflect/).
+    1. Generate StateMachine via `NewStateMachine` function with the Plant UML state machine diagram.
       - `NewStateMachine` parsed given diagram. When any non implement action and/or guard methods found, `NewStateMachine` will return error.
     1. Start StateMachine with `Run` method.
     1. send Event to StateMachine
@@ -51,8 +49,6 @@ import (
 
   sm "github.com/marrbor/go-state-machine/statemachine"
 )
-
-var dq chan string
 
 type T struct{
  counter int
@@ -78,14 +74,6 @@ func (t *T) DoState1() {
 LOOP:
     for {
       select {
-        case fmsg := <- dq:
-          // stop message detect.
-  	      response := "State1"
-	      if fmsg != response {
-	  	    response = fmt.Sprintf("invaild state:%s", fmsg)
-	      }
-	      t.machine.FinishDoAction(response)
-  	      break LOOP
         case tmsg := <- tq:
           // some thing to do. 
       }
@@ -96,15 +84,15 @@ func main() {
   var t T
   oq := make(chan string)
 
-  m, err := sm.NewStateMachine(&t, "t.puml", 1, oq, dq) // initial transit to State1
+  m, err := sm.NewStateMachine(&t, "t.puml", 1, oq) // initial transit to State1
   if err != nil {panic(err)}
   m.Run() // do initial transition
 
   m.Send(sm.NewEvent("Succeeded")) // transit to State2
   m.Send(sm.NewEvent("Succeeded")) // transit to State3
-  m.Send(sm.NewEvent("Aborted"))   // call MaxCheck guard function, if MaxCheck returns true, transit to EndState. 
+  m.Send(sm.NewEvent("Aborted"))   // call MaxCheck guard function, if MaxCheck returns true, transit to endState. 
   s := <- oq // Wait for stopping machine.
-  if s != sm.Stopped {
+  if s != sm.stopped {
     panic(fmt.Errorf(s))
   }
   os.Exit(0)

@@ -7,22 +7,24 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/marrbor/golog"
 )
 
 const (
-	// callback message
-	Stopped = "stopped"
+	// message for goroutine
+	changeState = "state changed"
+	pleaseStop  = "stop!"
+	stopped     = "stopped"
+
+	// do-action tick timer duration when do-action is not running
+	idleTickDuration = 1 * time.Hour
 
 	// uml mark
 	StartStateMark = "[*]"
 	EndStateMark   = "[*]"
-
-	// timing return value
-	NoRetry         = 0
-	GradualIncrease = -1
 )
 
 var (
@@ -46,6 +48,16 @@ type STTItem struct {
 	next   *State // next state after timing runs.
 }
 
+// hasGuard returns whether this item has guard condition or not.
+func (i *STTItem) hasGuard() bool {
+	return 0 < len(i.guard)
+}
+
+// hasAction returns whether this item has guard condition or not.
+func (i *STTItem) hasAction() bool {
+	return 0 < len(i.action)
+}
+
 //////////////////////////////////////////////////
 // State Transition table
 type stt map[string][]STTItem
@@ -57,7 +69,7 @@ func (s stt) add(ev *Event, item STTItem) {
 //////////////////////////////////////////////////
 // State
 type State struct {
-	Name        string
+	name        string
 	transitions stt
 	entry       string
 	exit        string
@@ -66,12 +78,27 @@ type State struct {
 
 // Pre defined states
 var (
-	EndState = State{Name: "END"}
+	endState = State{name: "END"}
 )
 
-// IsSame returns whether given state is same state or not.
-func (s *State) IsSame(ss *State) bool {
-	return s.Name == ss.Name
+// hasEntry returns whether this state has entry action or not.
+func (s *State) hasEntry() bool {
+	return 0 < len(s.entry)
+}
+
+// hasDo returns whether this state has do action or not.
+func (s *State) hasDo() bool {
+	return 0 < len(s.do)
+}
+
+// hasExit returns whether this state has exit action or not.
+func (s *State) hasExit() bool {
+	return 0 < len(s.exit)
+}
+
+// isSame returns whether given state is same state or not.
+func (s *State) isSame(ss *State) bool {
+	return s.name == ss.name
 }
 
 // addTransitionItem adds STTItem into stt.
@@ -79,13 +106,18 @@ func (s *State) addTransitionItem(trigger *Event, item STTItem) {
 	s.transitions.add(trigger, item)
 }
 
+// isEnd returns whether given state is end state or not.
+func (s *State) isEnd() bool {
+	return s.name == endState.name
+}
+
 // NewState returns new state instance.
 func NewState(name string) *State {
 	if name == EndStateMark {
-		return &EndState
+		return &endState
 	}
 	return &State{
-		Name:        name,
+		name:        name,
 		transitions: make(stt),
 	}
 }
@@ -109,17 +141,18 @@ type StateMachine struct {
 	currentState *State
 	states       []*State
 
-	eventQueue        chan *Event // event queue to pull event.
-	toOwnerQueue      chan string // message queue to send message to owner program.
-	toDoActionQueue   chan string // send message to 'do action' goroutine.
-	fromDoActionQueue chan string // sent message from 'do action' goroutine.
+	eventQueue   chan *Event // event queue to pull event.
+	toOwnerQueue chan string // message queue to send message to owner program.
+
+	toDoActionQueue   chan string // send message to 'do-action' goroutine.
+	fromDoActionQueue chan string // sent message from 'do-action' goroutine.
 }
 
 // Run starts state machine.
 func (sm *StateMachine) Run() {
-	// start state machine
-	sm.postTransit() // run entry/do action if needed.
-	go sm.run()
+	go sm.do()         // start do-action goroutine
+	go sm.run()        // start state transition engine
+	sm.enterNewState() // transit from initial state.
 }
 
 // Send sends event to state machine.
@@ -127,21 +160,21 @@ func (sm *StateMachine) Send(ev *Event) {
 	sm.eventQueue <- ev
 }
 
-// ReplyFromDoAction sends event specified do-action exited.
-func (sm *StateMachine) FinishDoAction(state string) {
-	sm.fromDoActionQueue <- state
-}
-
 // GetState returns current state.
-func (sm *StateMachine) GetState() *State {
-	return sm.currentState
+func (sm *StateMachine) GetState() string {
+	return sm.currentState.name
 }
 
-// run wait for pull event and call transit when received.
+// IsEnd returns whether state machine is finished to run or not
+func (sm *StateMachine) IsEnd() bool {
+	return sm.currentState.isEnd()
+}
+
+// run is a goroutine that process state transition.
 func (sm *StateMachine) run() {
 	for {
 		ev := <-sm.eventQueue
-		golog.Debug(fmt.Sprintf("state: %s,event: '%+v(id:%+v)'", sm.currentState.Name, ev.name, ev.id))
+		golog.Debug(fmt.Sprintf("state: %s,event: '%+v(id:%+v)'", sm.currentState.name, ev.name, ev.id))
 
 		if err := sm.transit(ev); err != nil {
 			if err == FinishToTransitError {
@@ -151,52 +184,120 @@ func (sm *StateMachine) run() {
 		}
 	}
 	golog.Info("exit state machine")
-	sm.toOwnerQueue <- Stopped
+	sm.toOwnerQueue <- stopped
+}
+
+// do is a goroutine to run do-action functions.
+func (sm *StateMachine) do() {
+	// start timer with idle duration to prevent following 'timer.C' with nil value
+	isRunning := false
+	timer := time.NewTimer(idleTickDuration)
+
+LOOP:
+	for {
+		select {
+		case msg := <-sm.toDoActionQueue: // message from state transition goroutine.
+			switch msg {
+			case pleaseStop:
+				golog.Info("stop request for do-action goroutine detect. stop.")
+				break LOOP
+			case changeState:
+				golog.Info(fmt.Sprintf("change state to %s", sm.currentState.name))
+
+				// stop current running timer.
+				if !timer.Stop() {
+					<-timer.C // drain channel
+				}
+
+				if !sm.currentState.hasDo() {
+					// this state not have do-action.
+					isRunning = false
+					timer.Reset(idleTickDuration) // don't have a do-action.
+					break
+				}
+
+				// has a do-action, run it.
+				do := sm.currentState.do
+				golog.Info(fmt.Sprintf("run %s.", do))
+				isRunning = true
+				d := time.Duration(reflect.ValueOf(sm.bindClass).MethodByName(do).Call([]reflect.Value{})[0].Int())
+				if d <= 0 {
+					isRunning = false // No more do-actions need to be executed.
+					d = idleTickDuration
+				}
+				golog.Info(fmt.Sprintf("reset do-action interval timer to %d", d))
+				timer.Reset(d)
+			default:
+				golog.Warn(fmt.Sprintf("unexpected message detect:%s", msg))
+			}
+		case <-timer.C:
+			// expire tick timer
+			golog.Info(fmt.Sprintf("tick timer expired."))
+			if !isRunning {
+				timer.Reset(idleTickDuration) // do-action is not running. restart timer with idle duration.
+				break
+			}
+
+			if !sm.currentState.hasDo() {
+				golog.Error("isRunningDoAction is true but do-action is not found. set isRunningDoAction false.")
+				isRunning = false
+				timer.Reset(idleTickDuration) // do-action is not running. restart timer with idle duration.
+				break
+			}
+
+			// re-run do-action.
+			do := sm.currentState.do
+			golog.Info(fmt.Sprintf("run do-action: %s", do))
+			d := time.Duration(reflect.ValueOf(sm.bindClass).MethodByName(do).Call([]reflect.Value{})[0].Int())
+			if d <= 0 {
+				isRunning = false // No more do-actions need to be executed.
+				d = idleTickDuration
+			}
+			golog.Info(fmt.Sprintf("reset do-action interval timer to %d", d))
+			timer.Reset(d)
+		}
+	}
+	if !timer.Stop() {
+		<-timer.C // drain channel
+	}
+	// finish goroutine.
+	golog.Info("exit do-action goroutine")
+	sm.fromDoActionQueue <- stopped // reply.
 }
 
 // finish cleanup state machine.
 func (sm *StateMachine) finish() {
-	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.Name, EndState.Name))
-	sm.currentState = &EndState
+	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.name, endState.name))
+	sm.toDoActionQueue <- pleaseStop
+	<-sm.fromDoActionQueue
+	golog.Info("do-action goroutine stopped.")
+	sm.currentState = &endState
 }
 
-// preTransit calls exit functions if needed.
-func (sm *StateMachine) preTransit() {
-	do := sm.currentState.do
-	if 0 < len(do) {
-		golog.Trace("Stop do action.")
-		sm.toDoActionQueue <- sm.currentState.Name
-		sn := <-sm.fromDoActionQueue
-		if sn != sm.currentState.Name {
-			golog.Error(fmt.Sprintf("unexpected message from (%s) detect", sn))
-		}
-	}
-
-	exit := sm.currentState.exit
-	if 0 < len(exit) {
+// exitOldState calls exit-action functions if needed.
+func (sm *StateMachine) exitOldState() {
+	if sm.currentState.hasExit() {
+		exit := sm.currentState.exit
+		golog.Info(fmt.Sprintf("do exit-action: %s", exit))
 		reflect.ValueOf(sm.bindClass).MethodByName(exit).Call([]reflect.Value{})
 	}
 }
 
-// postTransit calls enter functions if needed.
-func (sm *StateMachine) postTransit() {
-	entry := sm.currentState.entry
-	if 0 < len(entry) {
-		// run entry action.
+// enterNewState calls enter functions if needed.
+func (sm *StateMachine) enterNewState() {
+	if sm.currentState.hasEntry() {
+		entry := sm.currentState.entry
+		golog.Info(fmt.Sprintf("Do entry-action: %s", entry))
 		reflect.ValueOf(sm.bindClass).MethodByName(entry).Call([]reflect.Value{})
 	}
-	do := sm.currentState.do
-	if 0 < len(do) {
-		// start do action goroutine.
-		go reflect.ValueOf(sm.bindClass).MethodByName(do).Call([]reflect.Value{})
-	}
+	sm.toDoActionQueue <- changeState
 }
 
 // transit make state transition in order to stt.
 func (sm *StateMachine) transit(ev *Event) error {
 	stt := sm.currentState.transitions[ev.name]
 	if stt == nil {
-		golog.Debug(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.Name))
+		golog.Debug(fmt.Sprintf("event %s ignored at state %s", ev.name, sm.currentState.name))
 		return nil
 	}
 
@@ -204,10 +305,11 @@ func (sm *StateMachine) transit(ev *Event) error {
 	var item *STTItem = nil
 	for i := range stt {
 		item = &stt[i]
-		if len(item.guard) <= 0 {
+		if !item.hasGuard() {
 			golog.Trace("no guard condition defined. do transition")
 			break
 		}
+
 		if !reflect.ValueOf(sm.bindClass).MethodByName(item.guard).Call([]reflect.Value{})[0].Bool() {
 			golog.Trace(fmt.Sprintf("guard condition %s not match. seek next candidate", item.guard))
 			item = nil
@@ -218,21 +320,21 @@ func (sm *StateMachine) transit(ev *Event) error {
 	}
 
 	if item == nil {
-		golog.Trace(fmt.Sprintf("event %s ignored at state %s since guard condition not match.", ev.name, sm.currentState.Name))
+		golog.Trace(fmt.Sprintf("event %s ignored at state %s since guard condition not match.", ev.name, sm.currentState.name))
 		return nil
 	}
 
 	// run action if defined
-	if 0 < len(item.action) {
+	if item.hasAction() {
 		golog.Trace(fmt.Sprintf("run '%+v'", item.action))
 		reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})
 	}
 
 	// state transition. run exit action if specified.
-	sm.preTransit()
-	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.Name, item.next.Name))
+	sm.exitOldState()
+	golog.Info(fmt.Sprintf("%s -> %s", sm.currentState.name, item.next.name))
 
-	if item.next.IsSame(&EndState) {
+	if item.next.isSame(&endState) {
 		// finish.
 		sm.finish()
 		return FinishToTransitError // reach to end state, shutdown machine.
@@ -240,7 +342,7 @@ func (sm *StateMachine) transit(ev *Event) error {
 
 	// entering new state. run entry and/or do action if specified.
 	sm.currentState = item.next
-	sm.postTransit()
+	sm.enterNewState()
 	return nil
 }
 
@@ -270,13 +372,13 @@ func getState(states map[string]*State, state string) *State {
 	s, ok := states[state]
 	if !ok {
 		s = NewState(state) // found new state
-		states[s.Name] = s
+		states[s.name] = s
 	}
 	return s
 }
 
 // NewStateMachine returns state machine instance with state model transition generated from given uml file.
-func NewStateMachine(k interface{}, path string, qSize int, oq, dq chan string) (*StateMachine, error) {
+func NewStateMachine(k interface{}, path string, qSize int, oq chan string) (*StateMachine, error) {
 	// array of function name that have to be implemented but not found.
 	var missedFunctions []string
 
@@ -287,8 +389,8 @@ func NewStateMachine(k interface{}, path string, qSize int, oq, dq chan string) 
 		states:            make([]*State, 0),
 		eventQueue:        make(chan *Event, qSize),
 		toOwnerQueue:      oq,
-		fromDoActionQueue: make(chan string),
-		toDoActionQueue:   dq,
+		fromDoActionQueue: make(chan string, 1),
+		toDoActionQueue:   make(chan string, 1),
 	}
 
 	// construct state transition data in order to given uml file.
