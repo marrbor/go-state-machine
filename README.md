@@ -25,8 +25,8 @@ State3 --> State3 : Failed
 ## usage
 1. write Plant UML state machine diagram.
 1. write state transition code:
-    1. Prototype of action function is `func() time.Duration` (defined as type `Action`).
-    1. Prototype of guard function is `func() bool` (defined as type `Guard`).
+    1. Prototype of action function is `func()`
+    1. Prototype of guard function is `func() bool`
     1. Prototype of entry/exit function is `func()` (No arguments/No return values).
     1. Prototype of do-function is `func()` (No arguments/No return values).
       - do-function must not break its procedure. when error occurred, logged it.

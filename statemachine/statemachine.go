@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/marrbor/golog"
@@ -24,9 +23,6 @@ const (
 	// timing return value
 	NoRetry         = 0
 	GradualIncrease = -1
-
-	// Default retry interval
-	DurationOfFirstRetry = 500 * time.Microsecond
 )
 
 var (
@@ -40,13 +36,6 @@ var (
 	NoEffectiveTransitionError        = fmt.Errorf("no effective transition found")
 
 	reWhiteSpace = regexp.MustCompile(`\s+`)
-)
-
-//////////////////////////////////////////////////
-// function type
-type (
-	Action func() time.Duration
-	Guard  func() bool
 )
 
 //////////////////////////////////////////////////
@@ -104,47 +93,13 @@ func NewState(name string) *State {
 //////////////////////////////////////////////////
 // Event
 type Event struct {
-	name    string
-	id      uuid.UUID
-	attempt int
-	delay   time.Duration
+	name string
+	id   uuid.UUID
 }
 
 // NewEvent returns new Event instance
 func NewEvent(name string) *Event {
-	return &Event{
-		name:    name,
-		id:      uuid.New(),
-		attempt: 0,
-		delay:   0,
-	}
-}
-
-// calcRetryDuration returns whether has to re-send this event or not.
-// When need to retry, set wait duration for re-send and increment attempt times.
-// Input parameter is return value of timing function.
-func (e *Event) calcRetryDuration(ret int64) bool {
-	if ret == NoRetry {
-		return false // no need to retry
-	}
-
-	// need to retry
-	e.attempt += 1
-
-	// delay time is given.
-	if 0 < ret {
-		e.delay = time.Duration(ret)
-		return true
-	}
-
-	// GradualIncrease
-	if e.attempt <= 1 {
-		// first time GradualIncrease.
-		e.delay = DurationOfFirstRetry
-		return true
-	}
-	e.delay *= 2 // 2+ time GradualIncrease.
-	return true
+	return &Event{name: name, id: uuid.New()}
 }
 
 //////////////////////////////////////////////////
@@ -153,7 +108,6 @@ type StateMachine struct {
 	bindClass    interface{}
 	currentState *State
 	states       []*State
-	retryTimer   *time.Timer
 
 	eventQueue        chan *Event // event queue to pull event.
 	toOwnerQueue      chan string // message queue to send message to owner program.
@@ -187,8 +141,8 @@ func (sm *StateMachine) GetState() *State {
 func (sm *StateMachine) run() {
 	for {
 		ev := <-sm.eventQueue
-		golog.Debug(fmt.Sprintf("state: %s,event: '%+v'", sm.currentState.Name, ev.name))
-		golog.Debug(fmt.Sprintf("event id:%+v attempt:%d delay:%d", ev.id, ev.attempt, ev.delay))
+		golog.Debug(fmt.Sprintf("state: %s,event: '%+v(id:%+v)'", sm.currentState.Name, ev.name, ev.id))
+
 		if err := sm.transit(ev); err != nil {
 			if err == FinishToTransitError {
 				break
@@ -202,12 +156,6 @@ func (sm *StateMachine) run() {
 
 // finish cleanup state machine.
 func (sm *StateMachine) finish() {
-	// stop retry timer.
-	if sm.retryTimer != nil {
-		if !sm.retryTimer.Stop() {
-			<-sm.retryTimer.C // drain timer channel.
-		}
-	}
 	golog.Info(fmt.Sprintf("transit %s -> %s", sm.currentState.Name, EndState.Name))
 	sm.currentState = &EndState
 }
@@ -234,10 +182,12 @@ func (sm *StateMachine) preTransit() {
 func (sm *StateMachine) postTransit() {
 	entry := sm.currentState.entry
 	if 0 < len(entry) {
+		// run entry action.
 		reflect.ValueOf(sm.bindClass).MethodByName(entry).Call([]reflect.Value{})
 	}
 	do := sm.currentState.do
 	if 0 < len(do) {
+		// start do action goroutine.
 		go reflect.ValueOf(sm.bindClass).MethodByName(do).Call([]reflect.Value{})
 	}
 }
@@ -272,20 +222,10 @@ func (sm *StateMachine) transit(ev *Event) error {
 		return nil
 	}
 
-	// do timing if defined
+	// run action if defined
 	if 0 < len(item.action) {
-		golog.Trace(fmt.Sprintf("do timing: '%+v'", item.action))
-		ret := reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})[0].Int()
-		// retry and no transition when specified.
-		golog.Trace(fmt.Sprintf("timing: '%+v' return %+v", item.action, ret))
-		if ev.calcRetryDuration(ret) {
-			golog.Trace(fmt.Sprintf("wait %+v for retry.", ev.delay))
-			sm.retryTimer = time.AfterFunc(ev.delay, func() {
-				sm.retryTimer = nil
-				sm.Send(ev)
-			})
-			return nil
-		}
+		golog.Trace(fmt.Sprintf("run '%+v'", item.action))
+		reflect.ValueOf(sm.bindClass).MethodByName(item.action).Call([]reflect.Value{})
 	}
 
 	// state transition. run exit action if specified.

@@ -9,29 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRetryDuration(t *testing.T) {
-	e := NewEvent("test")
-	assert.False(t, e.calcRetryDuration(NoRetry))
-
-	assert.True(t, e.calcRetryDuration(GradualIncrease))
-	assert.EqualValues(t, 1, e.attempt)
-	assert.EqualValues(t, DurationOfFirstRetry, e.delay)
-
-	assert.True(t, e.calcRetryDuration(GradualIncrease))
-	assert.EqualValues(t, 2, e.attempt)
-	assert.EqualValues(t, DurationOfFirstRetry*2, e.delay)
-
-	assert.True(t, e.calcRetryDuration(GradualIncrease))
-	assert.EqualValues(t, 3, e.attempt)
-	assert.EqualValues(t, DurationOfFirstRetry*2*2, e.delay) //
-
-	d := 1 * time.Second
-	assert.True(t, e.calcRetryDuration(int64(d)))
-	assert.EqualValues(t, 4, e.attempt)
-	assert.EqualValues(t, d, e.delay)
-
-}
-
 func TestParser1(t *testing.T) {
 	tr := parseTransition("[*] --> State1")
 	assert.EqualValues(t, &transition{
